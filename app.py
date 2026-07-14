@@ -25,9 +25,15 @@ app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "troque-esta-chave-fixa")
 
+def env_bool(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # 2) cookies em produção por trás de HTTPS (Nginx faz o TLS)
 app.config["SESSION_COOKIE_NAME"]   = "studio_sess"
-app.config["SESSION_COOKIE_SECURE"] = True          # mantém True se o acesso externo é https
+app.config["SESSION_COOKIE_SECURE"] = env_bool("SESSION_COOKIE_SECURE", True)          # mantém True se o acesso externo é https
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"       # use "None" se precisar cross-site (e aí precisa Secure=True)
 # Se usar subdomínios, pode destravar o domínio do cookie:
 # app.config["SESSION_COOKIE_DOMAIN"] = ".terceirizapro.com"
