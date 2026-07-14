@@ -25,6 +25,7 @@ headers_contaazul.json
 scripts/headers_contaazul.json
 scripts/scripts/headers_contaazul.json
 **/credenciais_contaazul.json
+**/credenciais_weblocacao.json
 **/credentials.json
 
 .DS_Store

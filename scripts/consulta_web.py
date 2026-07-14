@@ -26,26 +26,72 @@ LOGIN_URL = "https://www.weblocacao.com.br/authentication/login"
 CLOSING_URL = "https://www.weblocacao.com.br/Order/Closing"
 DETAILS_URL_TMPL = "https://www.weblocacao.com.br/order/closingdetails?date={ini}&idStore=0&dateEnd={fim}"
 
-EMAIL = os.getenv("WEB_EMAIL")
-PASSWORD = os.getenv("WEB_PASSWORD")
-ANTICAPTCHA_KEY = os.getenv("ANTICAPTCHA_KEY")
-
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36")
 
 def require_env(name, value):
     if not value:
-        raise RuntimeError(f"Environment variable {name} is required.")
+        raise RuntimeError(
+            f"{name} ausente. Configure a variavel de ambiente ou dados/credenciais_weblocacao.json."
+        )
     return value
 
 # DUMPS sempre em ../dados (irmã de scripts)
 SCRIPTS_DIR = Path(__file__).resolve().parent
 DADOS_DIR = SCRIPTS_DIR.parent / "dados"
 DADOS_DIR.mkdir(parents=True, exist_ok=True)
+WEBLOCACAO_CREDENTIALS_PATH = DADOS_DIR / "credenciais_weblocacao.json"
 LAST_LOGIN_HTML   = DADOS_DIR / "last_login.html"
 LAST_LOGIN_PNG    = DADOS_DIR / "login.png"
 LAST_CLOSING_HTML = DADOS_DIR / "last_closingdetails.html"
 LAST_CLOSING_PNG  = DADOS_DIR / "closing.png"
+
+
+def _read_weblocacao_credentials_file():
+    if not WEBLOCACAO_CREDENTIALS_PATH.exists() or WEBLOCACAO_CREDENTIALS_PATH.stat().st_size == 0:
+        return {}
+    try:
+        payload = json.loads(WEBLOCACAO_CREDENTIALS_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Credenciais do Web Locacao invalidas em {WEBLOCACAO_CREDENTIALS_PATH}: {exc}")
+        return {}
+    if isinstance(payload, list):
+        payload = next((item for item in payload if isinstance(item, dict)), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _pick_credential(source, *keys):
+    for key in keys:
+        value = source.get(key)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value:
+            return value
+    return None
+
+
+def load_weblocacao_credentials():
+    file_credentials = _read_weblocacao_credentials_file()
+    email = os.getenv("WEB_EMAIL") or _pick_credential(
+        file_credentials, "email", "login", "usuario", "user", "WEB_EMAIL"
+    )
+    password = os.getenv("WEB_PASSWORD") or _pick_credential(
+        file_credentials, "senha", "password", "WEB_PASSWORD"
+    )
+    anticaptcha_key = os.getenv("ANTICAPTCHA_KEY") or _pick_credential(
+        file_credentials, "anticaptcha_key", "anti_captcha_key", "captcha_key", "ANTICAPTCHA_KEY"
+    )
+    return email, password, anticaptcha_key
+
+
+def refresh_weblocacao_credentials():
+    global EMAIL, PASSWORD, ANTICAPTCHA_KEY
+    EMAIL, PASSWORD, ANTICAPTCHA_KEY = load_weblocacao_credentials()
+    return EMAIL, PASSWORD, ANTICAPTCHA_KEY
+
+
+EMAIL, PASSWORD, ANTICAPTCHA_KEY = refresh_weblocacao_credentials()
 
 # ============== HELPERS DUMP ==============
 def _save_dump(page, html_path: Path, png_path: Path, label: str):
@@ -326,8 +372,9 @@ def web_consulta():
     try:
         logger.info("=== INICIANDO PROCESSO ===")
         logger.info(f"Data atual: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-        email = require_env("WEB_EMAIL", EMAIL)
-        password = require_env("WEB_PASSWORD", PASSWORD)
+        email, password, _anticaptcha_key = refresh_weblocacao_credentials()
+        email = require_env("WEB_EMAIL", email)
+        password = require_env("WEB_PASSWORD", password)
         sess = login_and_build_session(email, password, headless=True)  # 100% automático
         if sess: resultado = consultar_web(sess)
         logger.info("=== PROCESSO CONCLUÍDO ===")

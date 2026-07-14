@@ -963,7 +963,15 @@ def executar_coleta_contaazul_studio(licenca):
     from scripts.unificador_de_tabelas import unificador
 
     sync_licenca_contaazul_legado(licenca)
-    web_consulta()
+    web_erro = None
+    web_linhas = 0
+    try:
+        df_web = web_consulta()
+        web_linhas = 0 if df_web is None else int(len(df_web))
+    except Exception as exc:
+        web_erro = str(exc)
+        print(f"[WARN] Web Locacao nao atualizado: {exc}")
+
     contas = coletar_contas_bancarias()
     centros = coletar_centros_de_custo()
     df_fluxo = coletar_fluxo()
@@ -981,6 +989,8 @@ def executar_coleta_contaazul_studio(licenca):
         "centros": 0 if centros is None else int(len(centros)),
         "fluxo": 0 if df_fluxo is None else int(len(df_fluxo)),
         "recebiveis": 0 if recebiveis is None else int(len(recebiveis)),
+        "web_linhas": web_linhas,
+        "web_erro": web_erro,
     }
 
 
@@ -1049,11 +1059,18 @@ def handle_contaazul_studio_post():
         if not (DATA_DIR / "headers_contaazul.json").exists():
             licenca, _headers = autenticar_licenca_contaazul_studio(licenca)
         resultado = executar_coleta_contaazul_studio(licenca)
-        flash(
+        mensagem = (
             f"Dados coletados para '{licenca['nome']}': "
             f"{resultado['contas']} contas, {resultado['centros']} centros, "
-            f"{resultado['fluxo']} linhas de fluxo.",
-            "success",
+            f"{resultado['fluxo']} linhas de fluxo."
+        )
+        categoria = "success"
+        if resultado.get("web_erro"):
+            mensagem += f" Dashboard Web Locacao nao atualizado: {resultado['web_erro']}"
+            categoria = "warning"
+        flash(
+            mensagem,
+            categoria,
         )
 
     elif acao == "extrair_todas":
@@ -1062,11 +1079,14 @@ def handle_contaazul_studio_post():
             flash("Nenhuma licenca ativa cadastrada.", "warning")
             return redirect(url_for("conectar_contaazul"))
         erros = []
+        avisos = []
         for licenca in licencas:
             try:
                 if not (DATA_DIR / "headers_contaazul.json").exists():
                     licenca, _headers = autenticar_licenca_contaazul_studio(licenca)
-                executar_coleta_contaazul_studio(licenca)
+                resultado = executar_coleta_contaazul_studio(licenca)
+                if resultado.get("web_erro"):
+                    avisos.append(f"{licenca['nome']}: {resultado['web_erro']}")
             except Exception as exc:
                 licenca["ultimo_status"] = "erro"
                 licenca["ultimo_erro"] = str(exc)
@@ -1074,6 +1094,8 @@ def handle_contaazul_studio_post():
                 erros.append(f"{licenca['nome']}: {exc}")
         if erros:
             flash("Algumas licencas falharam: " + " | ".join(erros), "warning")
+        elif avisos:
+            flash("Licencas ativas coletadas, mas o Dashboard Web Locacao nao atualizou: " + " | ".join(avisos), "warning")
         else:
             flash("Licencas ativas coletadas com sucesso.", "success")
 
@@ -2910,7 +2932,7 @@ import requests
 from flask import jsonify, current_app
 from bs4 import BeautifulSoup  # opcional (para inspeções)
 # Usa seu login automático e credenciais do consulta_web()
-from scripts.consulta_web import login_and_build_session, EMAIL, PASSWORD
+from scripts.consulta_web import login_and_build_session, refresh_weblocacao_credentials, require_env
 
 # -------------------------------------------------------------------------------------
 # login_required SEGURO (funciona com ou sem Flask-Login configurado)
@@ -2969,6 +2991,13 @@ def _log(level: str, msg: str):
         current_app.logger.log(getattr(logging, level.upper(), logging.INFO), msg)
     except Exception:
         getattr(_LOGGER, level if hasattr(_LOGGER, level) else "info")(msg)
+
+
+def _weblocacao_login_session():
+    email, password, _anticaptcha_key = refresh_weblocacao_credentials()
+    email = require_env("WEB_EMAIL", email)
+    password = require_env("WEB_PASSWORD", password)
+    return login_and_build_session(email, password, headless=True)
 
 # -------------------------------------------------------------------------------------
 # Paths seguros (não assumir 'app' no import-time)
@@ -3150,7 +3179,7 @@ def _fetch_month_json(session: requests.Session, inicio_br: str, fim_br: str, pa
             if tried_relogin:
                 raise RuntimeError("Sessão expirada e re-login já tentado.")
             _log("info", "[weblocacao] sessão expirada; refazendo login…")
-            session = login_and_build_session(EMAIL, PASSWORD, headless=True)
+            session = _weblocacao_login_session()
             tried_relogin = True
             continue  # refaz esta página com nova sessão
 
@@ -3160,7 +3189,7 @@ def _fetch_month_json(session: requests.Session, inicio_br: str, fim_br: str, pa
         except Exception as e:
             if not tried_relogin:
                 _log("info", f"[weblocacao] resposta não-JSON ({e}); revalidando sessão…")
-                session = login_and_build_session(EMAIL, PASSWORD, headless=True)
+                session = _weblocacao_login_session()
                 tried_relogin = True
                 continue
             raise RuntimeError(f"Resposta inválida do endpoint JSON: {e}")
@@ -3198,7 +3227,7 @@ def weblocacao_fetch_and_save_month():
     periodos = _mes_anterior_atual_proximo_br()
 
     # Sessão autenticada (Playwright+cookies) — mesmo princípio do consulta_web()
-    session = login_and_build_session(EMAIL, PASSWORD, headless=True)
+    session = _weblocacao_login_session()
 
     # Cabeçalhos base para JSON
     session.headers.update({
@@ -3274,6 +3303,27 @@ def register_weblocacao(app):
 # -------------------------------------------------------------------------------------
 # Agendador diário 00:00 e 12:00 (horário de Fortaleza)
 # -------------------------------------------------------------------------------------
+    @_route(app, "/weblocacao/atualizar_dashboard", "weblocacao_atualizar_dashboard_route", methods=["GET"])
+    @login_required
+    def _atualizar_dashboard_view():
+        out_path = os.path.join(app.root_path, "dados", "resultado_web.json")
+        try:
+            from scripts.consulta_web import web_consulta
+
+            resultado = web_consulta()
+            qtd_total = 0 if resultado is None else int(len(resultado))
+            return jsonify({
+                "ok": True,
+                "mensagem": "Dados do Web Locacao para o dashboard atualizados com sucesso.",
+                "arquivo": out_path,
+                "arquivos": [out_path],
+                "itens": qtd_total,
+            })
+        except Exception as e:
+            _log("error", f"[weblocacao-dashboard] Falha: {e}")
+            return jsonify({"ok": False, "erro": str(e), "arquivo": out_path, "arquivos": [out_path]}), 500
+
+
 _SCHEDULER_STARTED = False
 
 def _next_run_dt(now):
