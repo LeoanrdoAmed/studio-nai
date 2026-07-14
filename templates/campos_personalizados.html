@@ -1,0 +1,57 @@
+{% extends 'layout_base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-4">Campos Personalizados</h2>
+
+  <form method="POST" action="{{ url_for('campos_personalizados') }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <input type="text" name="nome" class="form-control" placeholder="Nome do campo" required>
+      </div>
+      <div class="col-md-4">
+        <input type="text" name="formula" class="form-control" placeholder="Expressão (ex: Grupo A - Grupo B)" required>
+      </div>
+      <div class="col-md-4">
+        <select name="grupo" class="form-select" required>
+          <option value="">Grupo onde será exibido</option>
+          {% for grupo in grupos %}
+            <option value="{{ grupo }}">{{ grupo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-12">
+        <button type="submit" class="btn btn-primary mt-2">Adicionar</button>
+      </div>
+    </div>
+  </form>
+
+  <hr class="my-4">
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Expressão</th>
+        <th>Grupo</th>
+        <th>Ação</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for campo in campos %}
+        <tr>
+          <td>{{ campo.nome }}</td>
+          <td>{{ campo.formula }}</td>
+          <td>{{ campo.grupo }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('excluir_campo_personalizado') }}">
+              <input type="hidden" name="nome" value="{{ campo.nome }}">
+              <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

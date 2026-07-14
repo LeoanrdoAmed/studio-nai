@@ -1,0 +1,707 @@
+{% extends 'layout_base.html' %}
+
+{% block title %}Dashboard de Fluxo de Caixa{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">📊 Dashboard</h2>
+  <button class="btn btn-outline-secondary btn-sm" onclick="toggleFiltros()">🔽 Filtros</button>
+</div>
+
+<div id="filtros-dashboard" class="card shadow-sm p-4 mb-4" style="display:none;">
+  <form method="get">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label for="start" class="form-label fw-semibold">📅 Período Inicial</label>
+        <input id="start" name="start" type="month" class="form-control form-control-sm" value="{{ start }}">
+      </div>
+      <div class="col-md-3">
+        <label for="end" class="form-label fw-semibold">📅 Período Final</label>
+        <input id="end" name="end" type="month" class="form-control form-control-sm" value="{{ end }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">🏦 Contas Bancárias</label>
+        <div class="dropdown">
+          <button class="form-control form-control-sm text-start" type="button" data-bs-toggle="dropdown">Selecionar contas</button>
+          <ul class="dropdown-menu p-2" style="max-height:200px; overflow-y:auto;">
+            <li class="form-check">
+              <input class="form-check-input" type="checkbox" id="conta_all" onchange="toggleAll('conta', this.checked)">
+              <label class="form-check-label small" for="conta_all">Todas as contas</label>
+            </li>
+            {% for conta in contas_all %}
+            <li class="form-check">
+              <input class="form-check-input" type="checkbox" name="conta" value="{{ conta }}" id="conta_{{ loop.index }}" {% if conta in selected_contas %}checked{% endif %}>
+              <label class="form-check-label small" for="conta_{{ loop.index }}">{{ conta }}</label>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">🏷️ Centro de Custos</label>
+        <div class="dropdown">
+          <button class="form-control form-control-sm text-start" type="button" data-bs-toggle="dropdown">Selecionar centros</button>
+          <ul class="dropdown-menu p-2" style="max-height:200px; overflow-y:auto;">
+            <li class="form-check">
+              <input class="form-check-input" type="checkbox" id="cc_all" onchange="toggleAll('cc', this.checked)">
+              <label class="form-check-label small" for="cc_all">Todos os centros</label>
+            </li>
+            {% for cc in centros_all %}
+            <li class="form-check">
+              <input class="form-check-input" type="checkbox" name="cc" value="{{ cc }}" id="cc_{{ loop.index }}" {% if cc in selected_cc %}checked{% endif %}>
+              <label class="form-check-label small" for="cc_{{ loop.index }}">{{ cc }}</label>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="row mt-3">
+      <div class="col text-end">
+        <button type="submit" class="btn btn-primary btn-sm">🔍 Aplicar</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="d-flex flex-column gap-3">
+  {% if 'chart_fat' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">💰 Faturamento Mensal</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartFat"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# WEB PACK: Faturamento + Vendas + Ticket, mantendo a MESMA FORMATAÇÃO #}
+  {% if 'chart_fat_web' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">💻 Faturamento Mensal (WEB)</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartFatWeb"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">🛒 Quantidade de Vendas (WEB)</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartVendasWeb"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">🎟️ Ticket Médio (WEB)</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartTicketWeb"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_proj' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">📈 Quantidade de Projetos</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartProj"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_ticket' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">🎟️ Ticket Médio</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartTicket"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_rev_collab' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">👥 Faturamento por Colaborador</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartRevCollab"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_consult' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">% Ocupação Mensal Consultores</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartConsultores"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_bpo' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">% Ocupação Mensal BPO</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartBPO"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_inad' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">Inadimplência Mensal</h5>
+      <div class="table-responsive">
+        <table class="table table-bordered mb-0 text-end">
+          <thead class="table-light">
+            <tr>
+              <th class="text-start">Mês/Ano</th>
+              <th>Qtd. de Títulos</th>
+              <th>Inadimplência (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mes, total in inadimplencia.items() if inadimpl_count[mes] > 0 %}
+            <tr>
+              <td class="text-start">{{ mes }}</td>
+              <td>{{ inadimpl_count[mes] }}</td>
+              <td>R$ {{ "{:,.0f}".format(total)|replace(',', '.') }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="fw-bold">
+              <td class="text-start">Total</td>
+              <td>{{ inadimpl_count.values()|sum }}</td>
+              <td>R$ {{ "{:,.0f}".format(inadimplencia.values()|sum)|replace(',', '.') }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_recpag' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">Receitas x Pagamentos</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartRecPag"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_gen' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">Geração de Caixa Mensal</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartGeracaoCaixa"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'chart_saldo' in enabled_modules %}
+  <div class="card shadow-sm">
+    <div class="card-body p-2">
+      <h5 class="card-title mb-2">Saldo Final</h5>
+      <div class="chart-container" style="position: relative; height:450px; width:95%; margin:auto;">
+        <canvas id="chartSaldo"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+<script>
+Chart.register(ChartDataLabels);
+
+function toggleFiltros(){
+  const f = document.getElementById('filtros-dashboard');
+  f.style.display = (f.style.display === 'none' || f.style.display === '') ? 'block' : 'none';
+}
+function toggleAll(name, checked){
+  document.querySelectorAll(`input[name="${name}"]`).forEach(cb => cb.checked = checked);
+}
+const enabledModules = {{ enabled_modules|tojson }};
+
+// Dados (mantidos)
+const labels        = {{ labels|tojson }};
+const saldo         = {{ saldo|tojson }};
+const receitas      = {{ receitas|tojson }};
+const pagamentos    = {{ pagamentos|tojson }};
+const geracao       = {{ geracao|tojson }};
+const consultPct    = {{ consult_pct|tojson }};
+const bpoPct        = {{ bpo_pct|tojson }};
+const monthLabels   = {{ month_labels|tojson }};
+const fatPrev       = {{ fat_prev|tojson }};
+const fatCurr       = {{ fat_curr|tojson }};
+const projPrev      = {{ proj_prev|tojson }};
+const projCurr      = {{ proj_curr|tojson }};
+const ticketPrev    = {{ ticket_prev|tojson }};
+const ticketCurr    = {{ ticket_curr|tojson }};
+const revPrev       = {{ rev_prev|tojson }};
+const revCurr       = {{ rev_curr|tojson }};
+
+// NOVO (WEB) — nomes alinhados ao backend
+const fatWebPrev     = {{ fat_web_prev|tojson }};
+const fatWebCurr     = {{ fat_web_curr|tojson }};
+const vendasWebPrev  = {{ vendas_web_prev|tojson }};
+const vendasWebCurr  = {{ vendas_web_curr|tojson }};
+const ticketWebPrev  = {{ ticket_web_prev|tojson }};
+const ticketWebCurr  = {{ ticket_web_curr|tojson }};
+
+// Formatação original (k)
+function fmt(val) {
+  return 'R$ ' + (val/1000).toLocaleString('pt-BR',{maximumFractionDigits:0}) + 'k';
+}
+
+// 1. Faturamento Mensal
+if (enabledModules.includes('chart_fat')) {
+  new Chart(document.getElementById('chartFat'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: fatPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => fmt(val) }
+        },
+        {
+          label: 'Ano Atual',
+          data: fatCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => fmt(val) }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.raw) }},
+        title: { display: true, text: 'Faturamento Mensal' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'R$ (k)' }, ticks: { callback: v => v + 'k' } }
+      }
+    }
+  });
+}
+
+// 1b. Faturamento Mensal (WEB) — MESMA FORMATAÇÃO
+if (enabledModules.includes('chart_fat_web')) {
+  new Chart(document.getElementById('chartFatWeb'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: fatWebPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => fmt(val) }
+        },
+        {
+          label: 'Ano Atual',
+          data: fatWebCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => fmt(val) }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.raw) }},
+        title: { display: true, text: 'Faturamento Mensal (WEB)' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'R$ (k)' }, ticks: { callback: v => v + 'k' } }
+      }
+    }
+  });
+
+  // 1c. Quantidade de Vendas (WEB) — MESMA FORMATAÇÃO VISUAL
+  new Chart(document.getElementById('chartVendasWeb'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: vendasWebPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v }
+        },
+        {
+          label: 'Ano Atual',
+          data: vendasWebCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: true, text: 'Quantidade de Vendas (WEB)' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'Qtd. Vendas' }, ticks: { callback: v => v } }
+      }
+    }
+  });
+
+  // 1d. Ticket Médio (WEB) — MESMA FORMATAÇÃO DO TICKET PADRÃO
+  new Chart(document.getElementById('chartTicketWeb'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: ticketWebPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => 'R$ ' + Math.round(val).toLocaleString('pt-BR') }
+        },
+        {
+          label: 'Ano Atual',
+          data: ticketWebCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => 'R$ ' + Math.round(val).toLocaleString('pt-BR') }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: true, text: 'Ticket Médio (WEB)' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: {
+          title: { display: true, text: 'R$' },
+          ticks: { callback: v => 'R$ ' + Math.round(v).toLocaleString('pt-BR') }
+        }
+      }
+    }
+  });
+}
+
+// 2. Quantidade de Projetos
+if (enabledModules.includes('chart_proj')) {
+  new Chart(document.getElementById('chartProj'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: projPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v }
+        },
+        {
+          label: 'Ano Atual',
+          data: projCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: true, text: 'Quantidade de Projetos' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'Qtd. Projetos' } }
+      }
+    }
+  });
+}
+
+// 3. Ticket Médio
+if (enabledModules.includes('chart_ticket')) {
+  new Chart(document.getElementById('chartTicket'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: ticketPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => 'R$ ' + Math.round(val).toLocaleString('pt-BR') }
+        },
+        {
+          label: 'Ano Atual',
+          data: ticketCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => 'R$ ' + Math.round(val).toLocaleString('pt-BR') }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: true, text: 'Ticket Médio' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: {
+          title: { display: true, text: 'R$' },
+          ticks: { callback: v => 'R$ ' + Math.round(v).toLocaleString('pt-BR') }
+        }
+      }
+    }
+  });
+}
+
+// 4. Faturamento por Colaborador
+if (enabledModules.includes('chart_rev_collab')) {
+  new Chart(document.getElementById('chartRevCollab'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Ano Anterior',
+          data: revPrev,
+          backgroundColor: 'rgba(201,203,207,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => 'R$ ' + Math.round(v).toLocaleString('pt-BR') }
+        },
+        {
+          label: 'Ano Atual',
+          data: revCurr,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => 'R$ ' + Math.round(v).toLocaleString('pt-BR') }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: true, text: 'Faturamento por Colaborador' },
+        tooltip: { callbacks: { label: ctx => 'R$ ' + Math.round(ctx.raw).toLocaleString('pt-BR') } }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'R$ por Colaborador' }, ticks: { callback: v => 'R$ ' + Math.round(v).toLocaleString('pt-BR') } }
+      }
+    }
+  });
+}
+
+// 5. % Ocupação Consultores
+if (enabledModules.includes('chart_consult')) {
+  new Chart(document.getElementById('chartConsultores'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: '% Ocupação Consultores',
+          data: consultPct,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v.toFixed(1) + '%' }
+        },
+        {
+          type: 'line',
+          data: labels.map(() => 80),
+          borderColor: '#dc3545',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+          datalabels: { display: false }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: true },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.type === 'line' ? ctx.raw + '%' : ctx.raw.toFixed(1) + '%' }},
+        title: { display: true, text: '% Ocupação Mensal Consultores' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: '% Ocupação' }, ticks: { callback: v => v + '%' }, min: 0, max: 100 }
+      }
+    }
+  });
+}
+
+// 6. % Ocupação BPO
+if (enabledModules.includes('chart_bpo')) {
+  new Chart(document.getElementById('chartBPO'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: '% Ocupação BPO',
+          data: bpoPct,
+          backgroundColor: 'rgba(13,110,253,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: v => v.toFixed(1) + '%' }
+        },
+        {
+          type: 'line',
+          data: labels.map(() => 80),
+          borderColor: '#dc3545',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+          datalabels: { display: false }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: true },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.type === 'line' ? ctx.raw + '%' : ctx.raw.toFixed(1) + '%' }},
+        title: { display: true, text: '% Ocupação Mensal BPO' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: '% Ocupação' }, ticks: { callback: v => v + '%' }, min: 0, max: 100 }
+      }
+    }
+  });
+}
+
+// 7. Receitas x Pagamentos
+if (enabledModules.includes('chart_recpag')) {
+  new Chart(document.getElementById('chartRecPag'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Receitas',
+          data: receitas,
+          backgroundColor: 'rgba(40,167,69,0.5)',
+          datalabels: { align: 'end', anchor: 'end', formatter: val => fmt(val) }
+        },
+        {
+          label: 'Pagamentos',
+          data: pagamentos.map(v => -v),
+          backgroundColor: 'rgba(220,53,69,0.5)',
+          datalabels: { align: 'start', anchor: 'start', formatter: val => fmt(Math.abs(val)) }
+        }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        datalabels: { display: true },
+        tooltip: { callbacks: { label: ctx => fmt(Math.abs(ctx.raw)) }},
+        title: { display: true, text: 'Receitas x Pagamentos' }
+      },
+      scales: {
+        x: { stacked: true, title: { display: true, text: 'Mês' } },
+        y: { stacked: true, title: { display: true, text: 'Valor (R$)' }, ticks: { callback: v => fmt(Math.abs(v)) } }
+      }
+    }
+  });
+}
+
+// 8. Geração de Caixa Mensal
+if (enabledModules.includes('chart_gen')) {
+  new Chart(document.getElementById('chartGeracaoCaixa'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: geracao,
+        backgroundColor: geracao.map(v => v >= 0 ? 'rgba(40,167,69,0.5)' : 'rgba(220,53,69,0.5)'),
+        borderColor: geracao.map(v => v >= 0 ? '#28a745' : '#dc3545'),
+        datalabels: { align: ctx => ctx.raw >= 0 ? 'end' : 'start', anchor: ctx => ctx.raw >= 0 ? 'end' : 'start', formatter: val => fmt(val) }
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: true },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.raw) }},
+        title: { display: true, text: 'Geração de Caixa Mensal' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'Valor (R$)' }, ticks: { callback: fmt } }
+      }
+    }
+  });
+}
+
+// 9. Saldo Fin22al
+if (enabledModules.includes('chart_saldo')) {
+  new Chart(document.getElementById('chartSaldo'), {
+    type: 'line',
+    data: { labels, datasets: [{ data: saldo, fill: false, datalabels: { align: 'top', formatter: val => fmt(val) } }] },
+    options: {
+      maintainAspectRatio: false,
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: true },
+        tooltip: { callbacks: { label: ctx => fmt(ctx.raw) }},
+        title: { display: true, text: 'Evolução do Saldo' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Mês' } },
+        y: { title: { display: true, text: 'Saldo (R$)' }, ticks: { callback: fmt } }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

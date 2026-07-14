@@ -1,0 +1,278 @@
+{% extends "layout_base.html" %}
+{% block title %}Produção · Histórico{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">Histórico de Produção</h4>
+    <div>
+      <a href="{{ url_for('producao_index') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i> Voltar
+      </a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-3">
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ cat }} py-2 mb-2">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="card shadow-sm">
+    <div class="card-header">
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-2">
+        <div class="d-flex align-items-end gap-2 flex-wrap">
+          <div>
+            <label for="fltIni" class="form-label mb-0 small">Início</label>
+            <input type="date" id="fltIni" class="form-control form-control-sm" style="min-width: 180px;">
+          </div>
+          <div>
+            <label for="fltFim" class="form-label mb-0 small">Término</label>
+            <input type="date" id="fltFim" class="form-control form-control-sm" style="min-width: 180px;">
+          </div>
+          <div class="d-flex gap-2 ms-1">
+            <button id="btnAplicar" class="btn btn-primary btn-sm" type="button">
+              <i class="bi bi-funnel me-1"></i> Aplicar
+            </button>
+            <button id="btnLimpar" class="btn btn-outline-secondary btn-sm" type="button" title="Voltar ao mês atual">
+              <i class="bi bi-eraser me-1"></i> Limpar
+            </button>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <small class="text-muted" id="fltInfo">—</small>
+          <button id="btnCSV" class="btn btn-outline-success btn-sm" type="button">
+            <i class="bi bi-download me-1"></i> Baixar CSV (filtrado)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle" id="tblHistorico">
+          <thead class="table-light">
+            <tr>
+              <th>ID</th>
+              <th>Peça</th>
+              <th>Contrato</th>
+              <th>Operador</th>
+              <th>Data Início</th>
+              <th>Hora Início</th>
+              <th>Data Término</th>
+              <th>Hora Término</th>
+              <th>Duração</th>
+              <th class="text-end">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if historico and historico|length>0 %}
+              {% for r in historico %}
+              <tr
+                data-data="{{ r.get('data','') }}"
+                data-data-termino="{{ r.get('data_termino','') }}"
+              >
+                <td><small class="text-muted">{{ r.get('id','-') }}</small></td>
+                <td class="td-peca">{{ r.get('peca','') }}</td>
+                <td class="td-contrato">{{ r.get('contrato','manutenção/NDI') }}</td>
+                <td>{{ r.get('operador','') }}</td>
+                <td class="td-data">{{ r.get('data','') }}</td>
+                <td>{{ r.get('hora_inicio','') }}</td>
+                <td class="td-data-termino">{{ r.get('data_termino','') }}</td>
+                <td>{{ r.get('hora_termino','') }}</td>
+                <td><code>{{ r.get('duracao_hms','') }}</code></td>
+                <td class="text-end">
+                  {% if r.get('id') %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('producao_historico_edit', hid=r.get('id')) }}">
+                      <i class="bi bi-pencil-square"></i>
+                    </a>
+                    <form class="d-inline" method="post" action="{{ url_for('producao_historico_delete') }}"
+                          onsubmit="return confirm('Deseja excluir este registro?');">
+                      <input type="hidden" name="id" value="{{ r.get('id') }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="10" class="text-center text-muted py-4">Nenhum registro encontrado.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card-footer d-flex justify-content-between">
+      <small class="text-muted">Dica: use Editar para corrigir datas/horas, operador ou contrato.</small>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('producao_index') }}"><i class="bi bi-play-fill me-1"></i> Em andamento</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ========= Helpers de data (flexível) =========
+  function parseDateFlexible(s){
+    if (!s) return null;
+    const txt = String(s).trim();
+
+    // dd/mm/aaaa [HH:MM[:SS]]
+    let m = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(txt);
+    if (m){
+      const dd=+m[1], mm=+m[2]-1, yy=+m[3];
+      const HH=+(m[4]||0), MM=+(m[5]||0), SS=+(m[6]||0);
+      const d = new Date(yy, mm, dd, HH, MM, SS, 0);
+      return isNaN(d) ? null : d;
+    }
+
+    // ISO yyyy-mm-dd[THH:mm[:ss]]
+    m = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(txt);
+    if (m){
+      const yy=+m[1], mm=+m[2]-1, dd=+m[3];
+      const HH=+(m[4]||0), MM=+(m[5]||0), SS=+(m[6]||0);
+      const d = new Date(yy, mm, dd, HH, MM, SS, 0);
+      return isNaN(d) ? null : d;
+    }
+
+    // fallback nativo
+    const d = new Date(txt);
+    return isNaN(d) ? null : d;
+  }
+  function toISODateInput(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  function monthBounds(date){
+    const y = date.getFullYear(), m = date.getMonth();
+    const first = new Date(y, m, 1);
+    const last  = new Date(y, m+1, 0);
+    return [first, last];
+  }
+  function clampDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+
+  // ========= Filtro =========
+  const $ini = document.getElementById('fltIni');
+  const $fim = document.getElementById('fltFim');
+  const $info= document.getElementById('fltInfo');
+  const $tbl = document.getElementById('tblHistorico');
+
+  function getRowDate(tr){
+    // prioridade: atributo data-data-termino; senão data-data
+    let dt = tr.getAttribute('data-data-termino') || tr.getAttribute('data-data') || '';
+
+    // fallback: procura nas células (caso não tenha data-attrs)
+    if (!dt) {
+      dt = (tr.querySelector('.td-data-termino')?.textContent || '').trim();
+      if (!dt) dt = (tr.querySelector('.td-data')?.textContent || '').trim();
+    }
+
+    return parseDateFlexible(dt);
+  }
+
+  function applyFilter(){
+    const rows = Array.from($tbl.querySelectorAll('tbody tr'));
+    if (!rows.length) return;
+
+    // range a aplicar
+    let dIni = $ini.value ? new Date($ini.value+'T00:00:00') : null;
+    let dFim = $fim.value ? new Date($fim.value+'T00:00:00') : null;
+
+    // padrão: mês vigente
+    if (!dIni || !dFim){
+      const [first, last] = monthBounds(new Date());
+      dIni = clampDay(first);
+      dFim = clampDay(last);
+      $ini.value = toISODateInput(dIni);
+      $fim.value = toISODateInput(dFim);
+    }
+    dIni = clampDay(dIni);
+    dFim = clampDay(dFim);
+
+    let vis = 0;
+    rows.forEach(tr => {
+      // linha de "Nenhum registro"
+      if (tr.querySelector('td[colspan]')) return;
+
+      const d = getRowDate(tr);
+      const show = (d && clampDay(d) >= dIni && clampDay(d) <= dFim);
+      tr.style.display = show ? '' : 'none';
+      if (show) vis++;
+    });
+    $info.textContent = `${vis} registro(s) · Período: ${$ini.value} → ${$fim.value}`;
+  }
+
+  function clearFilterToCurrentMonth(){
+    const [first, last] = monthBounds(new Date());
+    $ini.value = toISODateInput(first);
+    $fim.value = toISODateInput(last);
+    applyFilter();
+  }
+
+  document.getElementById('btnAplicar')?.addEventListener('click', applyFilter);
+  document.getElementById('btnLimpar')?.addEventListener('click', clearFilterToCurrentMonth);
+
+  // ========= Exportar CSV (somente linhas visíveis) =========
+  function tableToCSVVisible(){
+    const rows = Array.from($tbl.querySelectorAll('tbody tr'))
+      .filter(tr => tr.style.display !== 'none' && !tr.querySelector('td[colspan]'));
+
+    const header = Array.from($tbl.querySelectorAll('thead th'))
+      .map(th => th.textContent.trim());
+    header.pop(); // remove "Ações"
+
+    const lines = [header.map(s => `"${s.replace(/"/g,'""')}"`).join(';')];
+
+    rows.forEach(tr => {
+      const tds = Array.from(tr.querySelectorAll('td'));
+      tds.pop(); // remove "Ações"
+      const vals = tds.map(td => `"${td.textContent.trim().replace(/"/g,'""')}"`);
+      lines.push(vals.join(';'));
+    });
+
+    return lines.join('\r\n');
+  }
+
+  function downloadBlob(filename, blob){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  document.getElementById('btnCSV')?.addEventListener('click', () => {
+    const csv = tableToCSVVisible();
+    // BOM para Excel reconhecer UTF-8
+    const blob = new Blob(["\ufeff"+csv], {type: 'text/csv;charset=utf-8;'});
+    const ini = $ini.value || '';
+    const fim = $fim.value || '';
+    downloadBlob(`historico_${ini}_${fim}.csv`, blob);
+  });
+
+  // ========= Init =========
+  (function init(){
+    if (!$ini.value || !$fim.value){
+      const [first, last] = monthBounds(new Date());
+      $ini.value = toISODateInput(first);
+      $fim.value = toISODateInput(last);
+    }
+    applyFilter();
+  })();
+</script>
+{% endblock %}

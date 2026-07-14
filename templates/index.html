@@ -1,0 +1,122 @@
+{% extends "layout_base.html" %}
+{% block title %}DRE{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0 fw-bold">📄 Demonstrativo de Resultado do Exercício</h4>
+  <button class="btn btn-outline-secondary btn-sm" type="button" onclick="toggleFiltros()">
+    🔼 Mostrar Filtros
+  </button>
+</div>
+
+<div id="filtros-container" class="card shadow-sm p-4 mb-4" style="display: none;">
+  <form method="POST" enctype="multipart/form-data">
+    <div class="row g-4 align-items-end">
+      
+      <!-- Único upload de lançamentos (receitas e despesas) -->
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">📁 Lançamentos (receitas e despesas)</label>
+        <!-- REMOVIDO required para permitir filtrar sem reenviar -->
+        <input type="file" class="form-control form-control-sm" name="despesas">
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">📆 Início</label>
+        <input type="month"
+               class="form-control form-control-sm"
+               name="periodo_inicio"
+               value="{{ request_form.get('periodo_inicio', '') }}">
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">📆 Fim</label>
+        <input type="month"
+               class="form-control form-control-sm"
+               name="periodo_fim"
+               value="{{ request_form.get('periodo_fim', '') }}">
+      </div>
+
+      {% if lojas %}
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">🏬 Lojas</label>
+        <div class="dropdown">
+          <button class="btn btn-light border form-control-sm w-100 text-start dropdown-toggle"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false">
+            Selecione Lojas
+          </button>
+          <ul class="dropdown-menu p-2"
+              style="width: 100%; max-height: 200px; overflow-y: auto;">
+            {% for loja in lojas %}
+            <li>
+              <div class="form-check">
+                <input class="form-check-input"
+                       type="checkbox"
+                       name="lojas[]"
+                       id="loja_{{ loop.index }}"
+                       value="{{ loja }}"
+                       {% if loja in lojas_selecionadas %}checked{% endif %}>
+                <label class="form-check-label small"
+                       for="loja_{{ loop.index }}">
+                  {{ loja }}
+                </label>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="mt-3 d-flex gap-2 justify-content-end">
+      <button type="submit"
+              class="btn btn-outline-secondary btn-sm"
+              name="acao"
+              value="limpar"
+              formnovalidate>
+        🧹 Limpar
+      </button>
+      <button type="submit"
+              class="btn btn-outline-primary btn-sm"
+              name="acao"
+              value="filtrar"
+              formnovalidate>
+        🔍 Filtrar
+      </button>
+      <button type="submit"
+              class="btn btn-primary btn-sm"
+              name="acao"
+              value="upload">
+        📤 Enviar
+      </button>
+    </div>
+  </form>
+</div>
+
+{% if tabela_html_dre %}
+<div class="card p-4 mb-4">
+  {{ tabela_html_dre | safe }}
+</div>
+{% else %}
+<div class="alert alert-warning text-center">
+  Nenhum dado disponível. Faça o upload do arquivo de lançamentos ou aplique filtros.
+</div>
+{% endif %}
+
+<script>
+  function toggleFiltros() {
+    const container = document.getElementById("filtros-container");
+    const btn = event.target;
+    if (container.style.display === "none") {
+      container.style.display = "block";
+      btn.innerText = "🔽 Ocultar Filtros";
+    } else {
+      container.style.display = "none";
+      btn.innerText = "🔼 Mostrar Filtros";
+    }
+  }
+</script>
+
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends 'layout_base.html' %}
+
+{% block title %}Gerenciar Módulos{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <h2 class="mb-4">⚙️ Gerenciar Módulos</h2>
+  <form method="post">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+
+        <h5 class="card-title mb-3">Menus Principais</h5>
+        <div class="row mb-2">
+          {% for module in modules_info if module.type == 'main' %}
+          <div class="col-md-4">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="modules" value="{{ module.key }}" id="mod_{{ module.key }}" {% if module.key in enabled_modules %}checked{% endif %}>
+              <label class="form-check-label" for="mod_{{ module.key }}">
+                <i class="bi {{ module.icon }} me-1"></i>{{ module.label }}
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <h5 class="card-title mt-4 mb-3">Módulos de Configuração</h5>
+        <div class="row mb-2">
+          {% for module in modules_info if module.type == 'config' %}
+          <div class="col-md-4">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="modules" value="{{ module.key }}" id="mod_{{ module.key }}" {% if module.key in enabled_modules %}checked{% endif %}>
+              <label class="form-check-label" for="mod_{{ module.key }}">
+                <i class="bi {{ module.icon }} me-1"></i>{{ module.label }}
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <h5 class="card-title mt-4 mb-3">Gráficos do Dashboard</h5>
+        <div class="row">
+          {% for module in modules_info if module.type == 'chart' %}
+          <div class="col-md-4">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="modules" value="{{ module.key }}" id="mod_{{ module.key }}" {% if module.key in enabled_modules %}checked{% endif %}>
+              <label class="form-check-label" for="mod_{{ module.key }}">
+                <i class="bi {{ module.icon }} me-1"></i>{{ module.label }}
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+      </div>
+    </div>
+    <div class="text-end">
+      <button type="submit" class="btn btn-primary">💾 Salvar Alterações</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

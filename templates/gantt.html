@@ -1,0 +1,80 @@
+{% extends 'layout_base.html' %}
+
+{% block title %}Gantt{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <h2>Gantt de Atividades</h2>
+  <!-- Formulário de nova atividade -->
+  <form action="{{ url_for('gantt_add') }}" method="post" class="row g-2 mb-3">
+    <div class="col-md-3">
+      <input name="title" class="form-control" placeholder="Nova atividade..." required>
+    </div>
+    <div class="col-md-2">
+      <input name="start_date" type="date" class="form-control" required>
+    </div>
+    <div class="col-md-2">
+      <select name="periodicity" class="form-select" required>
+        <option value="Diária">Diária</option>
+        <option value="Semanal">Semanal</option>
+        <option value="Mensal">Mensal</option>
+      </select>
+    </div>
+    <div class="col-md-1">
+      <button class="btn btn-primary w-100">Adicionar</button>
+    </div>
+    <div class="col-md-4 text-end">
+      <a href="?year={{ year }}&month={{ month-1 if month>1 else 12 }}" class="btn btn-outline-secondary me-1">← Mês Anterior</a>
+      <a href="?year={{ year }}&month={{ month+1 if month<12 else 1 }}" class="btn btn-outline-secondary">Próximo Mês →</a>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered text-center align-middle">
+      <thead>
+        <tr>
+          <th rowspan="2">Atividade</th>
+          <th rowspan="2">Início</th>
+          <th rowspan="2">Periodicidade</th>
+          {% for label, days in grouped_days.items() %}
+            <th colspan="{{ days|length }}">{{ label }}</th>
+          {% endfor %}
+        </tr>
+        <tr>
+          {% for days in grouped_days.values() %}
+            {% for d in days %}
+              <th>{{ d.split('-')[2] }}</th>
+            {% endfor %}
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in activities %}
+        <tr>
+          <td class="text-start">
+            <!-- Botões editar/excluir movidos para início -->
+            <a href="{{ url_for('gantt_edit', aid=a.id, year=year, month=month) }}" class="btn btn-sm btn-outline-warning me-1">✏️</a>
+            <form action="{{ url_for('gantt_delete', aid=a.id, year=year, month=month) }}" method="post" class="d-inline me-2">
+              <button class="btn btn-sm btn-outline-danger">🗑️</button>
+            </form>
+            {{ a.title }}
+          </td>
+          <td>{{ a.start_date }}</td>
+          <td>{{ a.periodicity }}</td>
+          {% for days in grouped_days.values() %}
+            {% for d in days %}
+            <td>
+              <input type="checkbox" {% if d in log.get(a.id|string, []) %}checked{% endif %}
+                     onclick="fetch('{{ url_for('gantt_toggle', aid=a.id, day=d) }}', {method:'POST'})">
+            </td>
+            {% endfor %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}{% endblock %}

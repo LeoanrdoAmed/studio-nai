@@ -1,0 +1,52 @@
+{% extends 'layout_base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-4">Cadastro de Grupos</h2>
+
+  <!-- Formulário para adicionar novo grupo -->
+  <form method="POST" class="row g-3 mb-4">
+    <div class="col-md-6">
+      <input type="text" name="novo_grupo" class="form-control" placeholder="Novo grupo" required>
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-primary">Adicionar Grupo</button>
+    </div>
+  </form>
+
+  <!-- Tabela com os grupos -->
+  <table class="table table-bordered">
+    <thead class="table-light">
+      <tr>
+        <th>Nome do Grupo</th>
+        <th>Ordem Atual</th>
+        <th>Nova Ordem</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for grupo in grupos %}
+      <tr>
+        <td>{{ grupo }}</td>
+        <td>{{ ordens[grupo] if grupo in ordens else 'Não definida' }}</td>
+        <td>
+          <input type="number" class="form-control" form="ordemForm" name="ordem_{{ grupo }}" value="{{ ordens[grupo] if grupo in ordens else '' }}">
+        </td>
+        <td>
+          <!-- Formulário isolado para exclusão -->
+          <form method="POST" action="{{ url_for('excluir_grupo') }}" onsubmit="return confirm('Deseja realmente excluir o grupo {{ grupo }}?')">
+            <input type="hidden" name="grupo" value="{{ grupo }}">
+            <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Botão para salvar a ordem dos grupos -->
+  <form id="ordemForm" method="POST" action="{{ url_for('atualizar_ordem') }}">
+    <button type="submit" class="btn btn-success">Salvar Ordem dos Grupos</button>
+  </form>
+</div>
+{% endblock %}

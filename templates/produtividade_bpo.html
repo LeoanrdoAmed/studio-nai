@@ -1,0 +1,127 @@
+{% extends 'layout_base.html' %}
+
+{% block title %}Produtividade BPO{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <h2>Produtividade BPO – {{ month }}/{{ year }}</h2>
+  <div class="mb-3 text-end">
+    <a href="?year={{ prev_year }}&month={{ prev_month }}" class="btn btn-outline-secondary btn-sm">← Mês Anterior</a>
+    <a href="?year={{ next_year }}&month={{ next_month }}" class="btn btn-outline-secondary btn-sm">Próximo Mês →</a>
+  </div>
+
+  <!-- Card de % Ocupação -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-body p-2 d-flex flex-column align-items-center">
+      <h5 class="card-title mb-2">% Ocupação vs Disponibilidade</h5>
+      <div class="chart-container" style="position: relative; height:300px; width:300px;">
+        <canvas id="ocupacaoChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Formulário de cadastro de BPO -->
+  <form method="post" class="row g-2 align-items-end mb-4">
+    <input type="hidden" name="action" value="add_consultor">
+    <div class="col-md-6">
+      <label for="nome_novo" class="form-label">Nome do novo BPO</label>
+      <input type="text" id="nome_novo" name="nome_novo" class="form-control" placeholder="Novo BPO" required>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-outline-primary w-100">➕ Adicionar</button>
+    </div>
+  </form>
+
+  {% if valores %}
+  <!-- Tabela de Produtividade -->
+  <form method="post">
+    <table class="table table-bordered align-middle text-center mb-3">
+      <thead class="table-light">
+        <tr>
+          <th>BPO</th>
+          <th>Alocações</th>
+          <th>Disponibilidade</th>
+          <th>Turnos Livres</th>
+          <th>% Ociosidade</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for nome, v in valores.items() %}
+        {% set pct = (v['livres']/v['disponibilidade']*100) if v['disponibilidade'] else 0 %}
+        <tr>
+          <td><input type="text" name="name_{{ nome }}" value="{{ nome }}" class="form-control form-control-sm" required></td>
+          <td><input type="number" min="0" id="alloc_{{ nome }}" name="alloc_{{ nome }}" value="{{ v['alocacoes'] }}" class="form-control form-control-sm text-end"></td>
+          <td><input type="number" min="0" id="disp_{{ nome }}" name="disp_{{ nome }}" value="{{ v['disponibilidade'] }}" class="form-control form-control-sm text-end"></td>
+          <td><input type="text" readonly id="livres_{{ nome }}" value="{{ v['livres'] }}" class="form-control form-control-sm text-end"></td>
+          <td><input type="text" readonly id="ociosidade_{{ nome }}" value="{{ pct|round(1) }}%" class="form-control form-control-sm text-end"></td>
+          <td>
+            <button type="submit" name="delete_consultor" value="{{ nome }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Excluir {{ nome }}?');">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-end">
+      <button type="submit" name="action" value="save_produtividade" class="btn btn-primary">💾 Salvar Alterações</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="text-center">Nenhum BPO cadastrado para este mês.</p>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+<script>
+  Chart.register(ChartDataLabels);
+  document.addEventListener('DOMContentLoaded', function() {
+    // Computa totais iniciais
+    function computeTotals() {
+      let alloc = 0, disp = 0;
+      document.querySelectorAll('input[id^="alloc_"]').forEach(i => alloc += parseInt(i.value) || 0);
+      document.querySelectorAll('input[id^="disp_"]').forEach(i => disp += parseInt(i.value) || 0);
+      return { alloc, free: disp - alloc };
+    }
+    const totals = computeTotals();
+    const ctx = document.getElementById('ocupacaoChart').getContext('2d');
+    const ocupChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Ocupado', 'Livre'],
+        datasets: [{ data: [totals.alloc, totals.free], backgroundColor: ['#28a745', '#ffc107'] }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          datalabels: {
+            formatter: (value, ctx) => {
+              const sum = ctx.chart.data.datasets[0].data.reduce((a,b) => a+b, 0) || 1;
+              return ((value / sum) * 100).toFixed(1) + '%';
+            },
+            color: '#fff', font: { weight: 'bold', size: 14 }
+          },
+          legend: { position: 'bottom', labels: { usePointStyle: true } }
+        }
+      }
+    });
+    // Atualiza turnos livres, % ociosidade e gráfico em tempo real
+    document.querySelectorAll('input[id^="alloc_"], input[id^="disp_"]').forEach(el => el.addEventListener('input', function() {
+      const name = this.id.split('_')[1];
+      const a = parseInt(document.getElementById('alloc_' + name).value) || 0;
+      const d = parseInt(document.getElementById('disp_' + name).value) || 0;
+      const free = Math.max(0, d - a);
+      document.getElementById('livres_' + name).value = free;
+      const pct = d ? ((free / d) * 100).toFixed(1) + '%' : '0%';
+      document.getElementById('ociosidade_' + name).value = pct;
+      const t = computeTotals();
+      ocupChart.data.datasets[0].data = [t.alloc, t.free];
+      ocupChart.update();
+    }));
+  });
+</script>
+{% endblock %}

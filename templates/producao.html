@@ -1,0 +1,452 @@
+{% extends "layout_base.html" %}
+{% block title %}Produção · Em andamento{% endblock %}
+
+{% block content %}
+
+<style>
+  /* cards compactos */
+  .card-compact .card-header { padding-top: .4rem; padding-bottom: .4rem; }
+  .card-compact .card-body   { padding: .6rem .7rem; }
+  .card-compact .form-label  { margin-bottom: .25rem; font-size: .9rem; }
+  .card-compact .form-text   { margin-top: .25rem; }
+
+  /* wrapper de rolagem vertical */
+  .table-scroll { overflow-y: auto; }
+  .table-sticky thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bs-light, #f8f9fa);
+  }
+</style>
+
+<div class="container-fluid">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">Controle de Produção</h4>
+    <div class="d-flex gap-2">
+      <button id="btnWebloc" class="btn btn-outline-primary btn-sm" type="button" title="Sincroniza retiradas (WebLocação)">
+        <i class="bi bi-cloud-arrow-down me-1"></i> Atualizar Retiradas (WEB)
+      </button>
+      <a href="{{ url_for('producao_historico') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-clock-history me-1"></i> Histórico
+      </a>
+    </div>
+  </div>
+
+  <!-- ====== Tabelas (uma acima da outra) ====== -->
+  <!-- Retiradas -->
+  <div class="card shadow-sm" id="cardRetiradas">
+    <div class="card-header d-flex align-items-center justify-content-between py-2">
+      <strong>Retiradas (pendentes de devolução)</strong>
+      <small class="text-muted">
+        Janela: terça-feira atual → segunda seguinte · <span id="spanJanela">calculando…</span>
+      </small>
+    </div>
+    <div class="card-body p-0">
+      <div id="wrapRetiradas" class="table-responsive table-scroll">
+        <table class="table table-sm table-hover mb-0 align-middle table-sticky" id="tblRetiradas">
+          <thead class="table-light">
+            <tr>
+              <th>Contrato</th>
+              <th>Cliente</th>
+              <th>Cód. produto</th>
+              <th>Produto</th>
+              <th>Data de retirada</th>
+              <th>Dias de prazo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="text-center text-muted">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-between py-2">
+      <small class="text-muted" id="retInfo">—</small>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" id="btnReloadRet" type="button">
+          <i class="bi bi-arrow-clockwise me-1"></i> Recarregar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Em andamento -->
+  <div class="card shadow-sm mt-3">
+    <div class="card-header d-flex align-items-center justify-content-between py-2">
+      <strong>Em andamento</strong>
+      <small class="text-muted">Atualiza a cada 1s</small>
+    </div>
+    <div class="card-body p-0">
+      <div id="wrapAndamento" class="table-responsive table-scroll">
+        <table class="table table-hover mb-0 align-middle table-sticky" id="tblAndamento">
+          <thead class="table-light">
+            <tr>
+              <th>Peça</th>
+              <th>Contrato</th>
+              <th>Operador</th>
+              <th>Data Início</th>
+              <th>Hora Início</th>
+              <th>Tempo Corrido</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="text-center text-muted">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer py-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('producao_historico') }}">
+        <i class="bi bi-clock-history me-1"></i> Ver histórico
+      </a>
+    </div>
+  </div>
+
+  <!-- ====== Cards de botões lado a lado (abaixo das tabelas) ====== -->
+  <div class="row g-3 mt-3">
+    <div class="col-lg-6">
+      <div class="card shadow-sm card-compact h-100">
+        <div class="card-header"><strong>Iniciar processo</strong></div>
+        <div class="card-body">
+          <form id="frmStart" method="post" action="{{ url_for('producao_iniciar') }}" novalidate>
+            <div class="mb-2">
+              <label class="form-label">Peça</label>
+              <input type="text" name="peca" class="form-control form-control-sm" placeholder="Ex.: 12345-A" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Operador (numérico)</label>
+              <input type="text" name="operador" class="form-control form-control-sm" inputmode="numeric" pattern="\d+" placeholder="Ex.: 101" oninput="this.value=this.value.replace(/\D/g,'')" required>
+              <div class="form-text">Apenas números — será validado no envio.</div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" id="btnStart">
+              <i class="bi bi-play-fill me-1"></i> Iniciar
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card shadow-sm card-compact h-100">
+        <div class="card-header"><strong>Encerrar processo</strong></div>
+        <div class="card-body">
+          <form id="frmStop" method="post" action="{{ url_for('producao_encerrar') }}" novalidate>
+            <div class="mb-2">
+              <label class="form-label">Peça</label>
+              <input type="text" name="peca" class="form-control form-control-sm" placeholder="Informe a mesma peça do início" required>
+            </div>
+            <button type="submit" class="btn btn-danger btn-sm" id="btnStop">
+              <i class="bi bi-stop-fill me-1"></i> Encerrar
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ==========================
+  // Altura p/ rolagem a partir de 15 linhas
+  // ==========================
+  function applyVerticalScroll(tableId, wrapperId, minRows = 15) {
+    const wrap = document.getElementById(wrapperId);
+    const tbl  = document.getElementById(tableId);
+    if (!wrap || !tbl) return;
+
+    const thead = tbl.querySelector('thead');
+    const firstBodyRow = tbl.querySelector('tbody tr');
+
+    if (!firstBodyRow) return;
+
+    const rowH  = firstBodyRow.getBoundingClientRect().height || 36;
+    const headH = thead ? thead.getBoundingClientRect().height : 0;
+    const borderPad = 8;
+
+    const maxH = Math.ceil(rowH * minRows + headH + borderPad);
+    wrap.style.maxHeight = maxH + 'px';
+  }
+  let _rszTimer=null;
+  window.addEventListener('resize', () => {
+    clearTimeout(_rszTimer);
+    _rszTimer=setTimeout(()=>{
+      applyVerticalScroll('tblAndamento','wrapAndamento',15);
+      applyVerticalScroll('tblRetiradas','wrapRetiradas',15);
+    }, 100);
+  });
+
+  // ==========================
+  // Atualizar Retiradas (manual)
+  // ==========================
+  (function(){
+    const btn = document.getElementById('btnWebloc');
+    if (!btn) return;
+    const originalHTML = btn.innerHTML;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Atualizando…';
+      try {
+        const res = await fetch('{{ url_for("weblocacao_atualizar_retiradas_route") }}', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data && data.ok) {
+          alert(`✅ Retiradas atualizadas.\nArquivo: ${data.arquivo || data.arquivos?.[0] || 'retiradas_web_locacao.json'}`);
+          await loadRetiradas();
+          await fetchAndamento();
+        } else {
+          alert('❌ Falha na atualização: ' + (data?.erro || data?.error || res.status));
+        }
+      } catch (e) {
+        alert('❌ Erro de rede: ' + e);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      }
+    });
+  })();
+
+  // ==========================
+  // SUBMIT via AJAX (sem “tela preta”)
+  // ==========================
+  async function ajaxSubmitForm(form, confirmMsg, btnSelector){
+    const btn = btnSelector ? document.querySelector(btnSelector) : null;
+    if (!confirm(confirmMsg)) return;
+
+    const body = new URLSearchParams(new FormData(form));
+    const url  = form.action || window.location.href;
+    const method = (form.method || 'POST').toUpperCase();
+
+    try {
+      if (btn) { btn.disabled = true; btn.dataset._html = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Enviando…'; }
+      const res  = await fetch(url, {
+        method,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body
+      });
+      const text = await res.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch { data = { ok: res.ok, raw: text }; }
+      if (!res.ok || data.ok === false) throw new Error(data?.erro || data?.error || `HTTP ${res.status}`);
+      return data || {ok:true};
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset._html || btn.innerHTML; }
+    }
+  }
+
+  // Iniciar (AJAX)
+  document.getElementById('frmStart').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const p = this.peca.value.trim();
+    const o = this.operador.value.trim();
+    const data = await ajaxSubmitForm(this, `Confirmar INÍCIO do processo?\n\nPeça: ${p}\nOperador: ${o}`, '#btnStart');
+    if (data && data.ok) {
+      alert('✅ Processo iniciado com sucesso.');
+      this.reset();
+      this.peca.focus();
+      await ensurePendingMapLoaded();
+      await fetchAndamento();
+    }
+  });
+
+  // Encerrar (AJAX)
+  document.getElementById('frmStop').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const p = this.peca.value.trim();
+    const data = await ajaxSubmitForm(this, `Confirmar ENCERRAMENTO do processo da peça ${p}?`, '#btnStop');
+    if (data && data.ok) {
+      const dur = data.duracao_hms || data.duracao || '';
+      alert(`✅ Processo encerrado.${dur ? `\nDuração: ${dur}` : ''}`);
+      this.reset();
+      await fetchAndamento();
+    }
+  });
+
+  // ================
+  // Em andamento + vínculo de Contrato
+  // ================
+  function toHMS(seg){
+    seg = Math.max(0, parseInt(seg||0,10));
+    const h = String(Math.floor(seg/3600)).padStart(2,'0');
+    const m = String(Math.floor((seg%3600)/60)).padStart(2,'0');
+    const s = String(seg%60).padStart(2,'0');
+    return `${h}:${m}:${s}`;
+  }
+
+  const PENDING_CACHE = { rows: [], norm: [], builtAt: 0 };
+
+  function normStr(s){
+    return String(s||'')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g,'');
+  }
+
+  function buildPendingNorm(dataRows){
+    PENDING_CACHE.rows = Array.isArray(dataRows) ? dataRows : [];
+    PENDING_CACHE.norm = PENDING_CACHE.rows.map(r => ({
+      codeNorm: normStr(r.CodProd),
+      nameNorm: normStr(r.Produto),
+      contrato: r.Contrato,
+      dias: (typeof r.DiasPrazo === 'number' ? r.DiasPrazo : null)
+    }));
+    PENDING_CACHE.builtAt = Date.now();
+  }
+
+  async function ensurePendingMapLoaded(){
+    if (PENDING_CACHE.norm.length) return;
+    try{
+      const r = await fetch('/producao/api/retiradas_web_table', {cache:'no-store'});
+      const data = await r.json();
+      if (r.ok && data && Array.isArray(data.rows)){
+        buildPendingNorm(data.rows);
+      }
+    }catch(e){ /* silencioso */ }
+  }
+
+  function resolveContratoForPeca(pecaRaw){
+    const key = normStr(pecaRaw);
+    if (!key) return 'manutenção/NDI';
+    let matches = PENDING_CACHE.norm.filter(x => x.codeNorm && x.codeNorm === key);
+    if (!matches.length){
+      matches = PENDING_CACHE.norm.filter(x => x.nameNorm && (x.nameNorm.includes(key) || key.includes(x.codeNorm)));
+    }
+    if (!matches.length) return 'manutenção/NDI';
+    matches.sort((a,b)=>{
+      if (a.dias != null && b.dias != null && a.dias !== b.dias) return a.dias - b.dias;
+      const na = parseInt(a.contrato,10), nb = parseInt(b.contrato,10);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return String(a.contrato).localeCompare(String(b.contrato));
+    });
+    return matches[0].contrato ?? 'manutenção/NDI';
+  }
+
+  let rows = [];
+  function drawTable() {
+    const tbody = document.querySelector('#tblAndamento tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Nenhum processo em andamento.</td></tr>`;
+      applyVerticalScroll('tblAndamento','wrapAndamento',15);
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.peca}</td>
+        <td>${r.contrato ?? 'manutenção/NDI'}</td>
+        <td>${r.operador}</td>
+        <td>${r.data}</td>
+        <td>${r.hora_inicio}</td>
+        <td><code>${toHMS(r.elapsed_seg)}</code></td>
+      </tr>
+    `).join('');
+    applyVerticalScroll('tblAndamento','wrapAndamento',15);
+  }
+
+  async function fetchAndamento() {
+    try {
+      await ensurePendingMapLoaded();
+      const res = await fetch('{{ url_for("producao_api_andamento") }}', {cache:'no-store'});
+      const data = await res.json();
+      rows = (data || []).map(r => ({...r, contrato: resolveContratoForPeca(r.peca)}));
+      drawTable();
+    } catch(e) { /* silencioso */ }
+  }
+
+  setInterval(() => {
+    if (rows.length) { rows.forEach(r => r.elapsed_seg++); drawTable(); }
+  }, 1000);
+  fetchAndamento();
+  setInterval(fetchAndamento, 5000);
+
+  // ==========================
+  // Retiradas — via backend (ordena por DiasPrazo asc) + alimenta mapa
+  // ==========================
+  function fmtBR(d){
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yy = d.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
+  function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+  function getTuesdayOfWeek(d){ const day=d.getDay(); const delta=(day-2+7)%7; const t=new Date(d); t.setHours(0,0,0,0); t.setDate(t.getDate()-delta); return t; }
+  function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+  function parseBRDate(dstr){
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(String(dstr||''));
+    if (!m) return null;
+    return new Date(+m[3], +m[2]-1, +m[1]);
+  }
+
+  function renderRetiradas(rows){
+    const tbody = document.querySelector('#tblRetiradas tbody');
+    if(!rows || !rows.length){
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Nenhum item para o intervalo configurado.</td></tr>`;
+      applyVerticalScroll('tblRetiradas','wrapRetiradas',15);
+      return;
+    }
+    tbody.innerHTML = rows.map(r=>{
+      const cls = (r.DiasPrazo < 0) ? 'text-danger fw-semibold'
+               : (r.DiasPrazo === 0) ? 'text-warning fw-semibold' : 'text-success';
+      return `<tr>
+        <td>${r.Contrato}</td>
+        <td>${r.Cliente}</td>
+        <td>${r.CodProd}</td>
+        <td>${r.Produto}</td>
+        <td>${r.DataRetirada}</td>
+        <td class="${cls}">${r.DiasPrazo}</td>
+      </tr>`;
+    }).join('');
+    applyVerticalScroll('tblRetiradas','wrapRetiradas',15);
+  }
+
+  async function loadRetiradas(){
+    const info = document.getElementById('retInfo');
+    const spanJanela = document.getElementById('spanJanela');
+
+    const hoje = new Date();
+    const terca = getTuesdayOfWeek(hoje);
+    const segunda = addDays(terca,6);
+    spanJanela.textContent = `${fmtBR(terca)} → ${fmtBR(segunda)}`;
+
+    info.textContent = 'Carregando…';
+    try{
+      const r = await fetch('/producao/api/retiradas_web_table', {cache:'no-store'});
+      const data = await r.json();
+      if (!r.ok || !data || data.ok === false){
+        throw new Error(data?.erro || data?.error || `HTTP ${r.status}`);
+      }
+
+      const ordered = (data.rows || []).slice().sort((a, b) => {
+        const ax = a.DiasPrazo, bx = b.DiasPrazo;
+        if (ax == null && bx != null) return 1;
+        if (ax != null && bx == null) return -1;
+        if (ax !== bx) return (ax ?? 0) - (bx ?? 0);
+        const da = parseBRDate(a.DataRetirada), db = parseBRDate(b.DataRetirada);
+        if (da && db && da.getTime() !== db.getTime()) return da - db;
+        return String(a.Produto||'').localeCompare(String(b.Produto||''));
+      });
+
+      renderRetiradas(ordered);
+      if (data.window) spanJanela.textContent = `${data.window.inicio} → ${data.window.fim}`;
+      info.textContent = `${ordered.length} item(ns)`;
+
+      // alimentar mapa p/ vincular contrato em "Em andamento"
+      buildPendingNorm(ordered);
+      await fetchAndamento();
+    }catch(e){
+      renderRetiradas([]);
+      info.textContent = 'Não foi possível carregar as retiradas.';
+      console.error(e);
+    }
+  }
+
+  document.getElementById('btnReloadRet')?.addEventListener('click', loadRetiradas);
+  document.addEventListener('DOMContentLoaded', async () => {
+    await loadRetiradas();
+    applyVerticalScroll('tblAndamento','wrapAndamento',15);
+    applyVerticalScroll('tblRetiradas','wrapRetiradas',15);
+  });
+  setInterval(loadRetiradas, 5*60*1000);
+</script>
+{% endblock %}

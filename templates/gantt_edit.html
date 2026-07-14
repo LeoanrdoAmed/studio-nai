@@ -1,0 +1,36 @@
+{% extends 'layout_base.html' %}
+
+{% block title %}Editar Atividade{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2>Editar Atividade Gantt</h2>
+  <form action="{{ url_for('gantt_edit', aid=act.id, year=year, month=month) }}"
+        method="post" class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">Atividade</label>
+      <input name="title" class="form-control" value="{{ act.title }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Data de Início</label>
+      <input name="start_date" type="date" class="form-control" value="{{ act.start_date }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Periodicidade</label>
+      <select name="periodicity" class="form-select" required>
+        <option value="Diária" {% if act.periodicity=='Diária' %}selected{% endif %}>Diária</option>
+        <option value="Semanal" {% if act.periodicity=='Semanal' %}selected{% endif %}>Semanal</option>
+        <option value="Mensal" {% if act.periodicity=='Mensal' %}selected{% endif %}>Mensal</option>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-success w-100">Salvar</button>
+    </div>
+    <div class="col-md-12 mt-3">
+      <a href="{{ url_for('gantt', year=year, month=month) }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}{% endblock %}

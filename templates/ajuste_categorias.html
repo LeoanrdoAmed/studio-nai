@@ -1,0 +1,63 @@
+{% extends 'layout_base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <h3>Ajustes de Subcategorias</h3>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <th>Subcategoria</th>
+          <th>Grupo Associado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {# Primeiro, subcategorias sem grupo (valor 'Sem Grupo' ou indefinido) #}
+        {% for sub in subcategorias|sort %}
+          {% set grp = associacoes.get(sub) %}
+          {% if grp == 'Sem Grupo' or grp is none %}
+          <tr>
+            <td>{{ sub }}</td>
+            <td>
+              <select name="{{ sub }}" class="form-select">
+                <option value="Sem Grupo" selected>Sem Grupo</option>
+                {% for grupo in grupos|sort %}
+                  <option value="{{ grupo }}">{{ grupo }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+
+        {# Depois, subcategorias com grupo definido e != 'Sem Grupo' #}
+        {% for sub in subcategorias|sort %}
+          {% set grp = associacoes.get(sub) %}
+          {% if grp and grp != 'Sem Grupo' %}
+          <tr>
+            <td>{{ sub }}</td>
+            <td>
+              <select name="{{ sub }}" class="form-select">
+                <option value="Sem Grupo">Sem Grupo</option>
+                {% for grupo in grupos|sort %}
+                  <option value="{{ grupo }}" {% if grp == grupo %}selected{% endif %}>{{ grupo }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    <button class="btn btn-success" type="submit">Salvar Ajustes</button>
+  </form>
+</div>
+{% endblock %}

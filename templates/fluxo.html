@@ -1,0 +1,76 @@
+{% extends "layout_base.html" %}
+{% block title %}Fluxo de Caixa{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0 fw-bold">💸 Fluxo de Caixa</h4>
+  <button class="btn btn-outline-secondary btn-sm" type="button" onclick="toggleFiltros()">🔽 Mostrar Filtros</button>
+</div>
+
+<div id="filtros-container" class="card shadow-sm p-4 mb-4" style="display: none;">
+  <form method="get">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">📅 Período Inicial</label>
+        <input type="month" name="inicio" class="form-control form-control-sm" value="{{ request.args.get('inicio', '') }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">📅 Período Final</label>
+        <input type="month" name="fim" class="form-control form-control-sm" value="{{ request.args.get('fim', '') }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">🏦 Contas Bancárias</label>
+        <div class="dropdown">
+          <button class="form-control form-control-sm text-start dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Selecionar contas
+          </button>
+          <ul class="dropdown-menu p-2" style="max-height: 200px; overflow-y: auto;">
+            <li>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="conta_all" onchange="toggleAll('conta', this.checked)">
+                <label class="form-check-label small" for="conta_all">Todas as contas</label>
+              </div>
+            </li>
+            {% for conta in contas %}
+              <li>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="conta" value="{{ conta['id'] }}"
+                         id="conta_{{ loop.index }}" {% if conta['id'] in request.args.getlist('conta') %}checked{% endif %}>
+                  <label class="form-check-label small" for="conta_{{ loop.index }}">{{ conta['nome'] }}</label>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-md-12 d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary btn-sm">🔍 Aplicar Filtros</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if fluxo_table %}
+  <div class="card p-4 mb-4">
+    {{ fluxo_table | safe }}
+  </div>
+{% else %}
+  <div class="alert alert-warning text-center">
+    Nenhum dado disponível para o filtro aplicado. Gere o fluxo ou ajuste os filtros.
+  </div>
+{% endif %}
+
+<script>
+  function toggleFiltros() {
+    const container = document.getElementById('filtros-container');
+    container.style.display = container.style.display === 'block' ? 'none' : 'block';
+  }
+
+  function toggleAll(name, checked) {
+    const checkboxes = document.querySelectorAll(`input[name="${name}"]`);
+    checkboxes.forEach(cb => cb.checked = checked);
+  }
+</script>
+{% endblock %}
