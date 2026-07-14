@@ -154,6 +154,32 @@ def extrair_registros_fluxo(data, ano, conta_id, conta_nome):
     return registros
 
 
+def _indexar_valores(registros):
+    valores = {}
+    for registro in registros:
+        chave = (registro["mes"], registro["subcategoria"])
+        valores[chave] = valores.get(chave, 0) + (registro.get("valor") or 0)
+    return valores
+
+
+def _registros_por_diferenca(total_idx, sem_conta_idx, conta_id, conta_nome):
+    registros = []
+    for mes, subcategoria in sorted(set(total_idx) | set(sem_conta_idx)):
+        valor = round(total_idx.get((mes, subcategoria), 0) - sem_conta_idx.get((mes, subcategoria), 0), 2)
+        if abs(valor) < 0.005:
+            continue
+        registros.append({
+            "mes": mes,
+            "subcategoria": subcategoria,
+            "categoria": "",
+            "conta_id": conta_id,
+            "conta_nome": conta_nome,
+            "status": "Consolidado",
+            "valor": valor,
+        })
+    return registros
+
+
 def consultar_fluxo(headers, conta_ids, ano):
     if isinstance(conta_ids, str):
         conta_ids = [conta_ids]
@@ -202,31 +228,59 @@ def coletar_fluxo():
     registros = []
     ano_fim = datetime.today().year
 
-    contas = carregar_contas()
+    contas = []
     conta_ids = []
-    for conta in contas:
+    for conta in carregar_contas():
         conta_id = conta.get("financialAccountId")
         if conta_id and conta_id not in conta_ids:
             conta_ids.append(conta_id)
+            contas.append(conta)
+    if not conta_ids:
+        print("Nenhuma conta encontrada para coleta.")
+        return None
 
-    print(f"Coletando fluxo consolidado de {len(conta_ids)} contas.")
+    print(f"Coletando fluxo por diferenca de {len(conta_ids)} contas.")
     for ano in range(ano_base, ano_fim + 1):
         try:
             try:
-                data = consultar_fluxo(headers, conta_ids, ano)
+                data_total = consultar_fluxo(headers, conta_ids, ano)
             except ContaAzulAuthError:
                 print("Sessao expirada. Refazendo autenticacao...")
                 headers = autenticar_e_salvar_headers(email, senha, otp_secret)
-                data = consultar_fluxo(headers, conta_ids, ano)
+                data_total = consultar_fluxo(headers, conta_ids, ano)
 
-            novos_registros = extrair_registros_fluxo(data, ano, "ALL", "Todas as contas")
-            if not novos_registros:
+            total_registros = extrair_registros_fluxo(data_total, ano, "ALL", "Todas as contas")
+            total_idx = _indexar_valores(total_registros)
+            if not total_idx:
                 print(f"Sem dados no ano {ano}")
                 continue
-            registros.extend(novos_registros)
+
+            if len(conta_ids) == 1:
+                registros.extend(extrair_registros_fluxo(data_total, ano, conta_ids[0], contas[0].get("nmBanco") or "Sem nome"))
+                continue
+
+            for conta in contas:
+                conta_id = conta["financialAccountId"]
+                conta_nome = conta.get("nmBanco") or "Sem nome"
+                ids_sem_conta = [cid for cid in conta_ids if cid != conta_id]
+
+                try:
+                    data_sem_conta = consultar_fluxo(headers, ids_sem_conta, ano)
+                except ContaAzulAuthError:
+                    print("Sessao expirada. Refazendo autenticacao...")
+                    headers = autenticar_e_salvar_headers(email, senha, otp_secret)
+                    data_sem_conta = consultar_fluxo(headers, ids_sem_conta, ano)
+
+                sem_conta_registros = extrair_registros_fluxo(data_sem_conta, ano, "ALL", "Todas exceto a conta")
+                sem_conta_idx = _indexar_valores(sem_conta_registros)
+                conta_registros = _registros_por_diferenca(total_idx, sem_conta_idx, conta_id, conta_nome)
+                registros.extend(conta_registros)
+                print(f"Conta {conta_nome}: {len(conta_registros)} registros no ano {ano}")
+                sleep(0.2)
+
             sleep(0.5)
         except Exception as exc:
-            print(f"Erro no fluxo consolidado ano {ano}: {exc}")
+            print(f"Erro no fluxo por conta ano {ano}: {exc}")
 
     if not registros:
         print("Nenhum dado coletado.")

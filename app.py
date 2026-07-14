@@ -480,6 +480,7 @@ def fluxo():
     fluxo_path   = os.path.join(app.root_path, 'dados', 'base_fluxo_ca.json')
     de_para_path = os.path.join(app.root_path, 'dados', 'de_para_categorias_mv.json')
     campos_path  = os.path.join(app.root_path, 'dados', 'campos_personalizados.json')
+    contas_path  = os.path.join(app.root_path, 'dados', 'base_02_cb.json')
 
     # 3) Leitura da base de fluxo
     if not os.path.exists(fluxo_path):
@@ -499,6 +500,8 @@ def fluxo():
 
     # normalizar coluna 'mes' para YYYY-MM
     df['mes'] = df['mes'].astype(str).str[:7]
+    if 'conta_id' in df.columns:
+        df['conta_id'] = df['conta_id'].where(df['conta_id'].notna(), '').astype(str)
 
     # 4) Carregar mapping de subcategoria→categoria
     de_para = []
@@ -560,12 +563,31 @@ def fluxo():
     df = df[df['categoria'] != 'Sem Grupo']
 
     # preparar filtros para a UI
-    contas = (
+    contas_presentes = set(df['conta_id'].dropna().astype(str)) if 'conta_id' in df.columns else set()
+    contas = []
+    if contas_presentes and os.path.exists(contas_path):
+        try:
+            df_contas = pd.read_json(contas_path)
+            for _, conta in df_contas.iterrows():
+                conta_id = str(conta.get('financialAccountId') or '')
+                if conta_id and conta_id in contas_presentes:
+                    contas.append({'id': conta_id, 'nome': conta.get('nmBanco') or 'Sem nome'})
+        except Exception:
+            contas = []
+
+    ids_listados = {conta['id'] for conta in contas}
+    extras = (
         df[['conta_id','conta_nome']]
           .drop_duplicates()
           .rename(columns={'conta_id':'id','conta_nome':'nome'})
           .to_dict(orient='records')
     )
+    for conta in extras:
+        conta_id = str(conta.get('id') or '')
+        if conta_id and conta_id not in ids_listados:
+            contas.append({'id': conta_id, 'nome': conta.get('nome') or 'Sem nome'})
+            ids_listados.add(conta_id)
+    contas = sorted(contas, key=lambda item: item['nome'])
     status_list = sorted(df['status'].dropna().unique())
 
     # 7) Aplicar filtros de período, conta e status (string 'YYYY-MM')
