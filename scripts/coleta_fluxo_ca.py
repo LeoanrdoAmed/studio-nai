@@ -39,13 +39,16 @@ def carregar_credenciais():
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def carregar_contas(incluir_sem_conta=True):
+def carregar_contas(incluir_sem_conta=True, incluir_inativas=True):
     path = DATA_DIR / "base_02_cb.json"
     if not path.exists():
         raise FileNotFoundError(f"Arquivo {path} nao encontrado.")
 
     df = pd.read_json(path)
-    contas = df[df["ativo"] == True].to_dict(orient="records")
+    if incluir_inativas:
+        contas = df.to_dict(orient="records")
+    else:
+        contas = df[df["ativo"] == True].to_dict(orient="records")
     if incluir_sem_conta and not any(c.get("financialAccountId") == "NONE" for c in contas):
         contas.append({
             "ativo": True,
@@ -151,13 +154,15 @@ def extrair_registros_fluxo(data, ano, conta_id, conta_nome):
     return registros
 
 
-def consultar_fluxo(headers, conta_id, ano):
+def consultar_fluxo(headers, conta_ids, ano):
+    if isinstance(conta_ids, str):
+        conta_ids = [conta_ids]
     payload = {
         "view": "ACCOMPLISHED",
         "year": ano,
-        "financialAccountIds": [conta_id],
+        "financialAccountIds": conta_ids,
     }
-    print(f"Request fluxo Conta Azul: conta={conta_id} ano={ano}")
+    print(f"Request fluxo Conta Azul: contas={len(conta_ids)} ano={ano}")
     resp = requests.post(
         FLUXO_URL,
         headers=normalizar_headers_fluxo(headers),
@@ -197,28 +202,31 @@ def coletar_fluxo():
     registros = []
     ano_fim = datetime.today().year
 
-    for conta in carregar_contas():
-        cid = conta["financialAccountId"]
-        nome = conta["nmBanco"]
-        print(f"Coletando dados da conta: {nome}")
+    contas = carregar_contas()
+    conta_ids = []
+    for conta in contas:
+        conta_id = conta.get("financialAccountId")
+        if conta_id and conta_id not in conta_ids:
+            conta_ids.append(conta_id)
 
-        for ano in range(ano_base, ano_fim + 1):
+    print(f"Coletando fluxo consolidado de {len(conta_ids)} contas.")
+    for ano in range(ano_base, ano_fim + 1):
+        try:
             try:
-                try:
-                    data = consultar_fluxo(headers, cid, ano)
-                except ContaAzulAuthError:
-                    print("Sessao expirada. Refazendo autenticacao...")
-                    headers = autenticar_e_salvar_headers(email, senha, otp_secret)
-                    data = consultar_fluxo(headers, cid, ano)
+                data = consultar_fluxo(headers, conta_ids, ano)
+            except ContaAzulAuthError:
+                print("Sessao expirada. Refazendo autenticacao...")
+                headers = autenticar_e_salvar_headers(email, senha, otp_secret)
+                data = consultar_fluxo(headers, conta_ids, ano)
 
-                novos_registros = extrair_registros_fluxo(data, ano, cid, nome)
-                if not novos_registros:
-                    print(f"Sem dados para {nome} no ano {ano}")
-                    continue
-                registros.extend(novos_registros)
-                sleep(0.5)
-            except Exception as exc:
-                print(f"Erro na conta {nome} ano {ano}: {exc}")
+            novos_registros = extrair_registros_fluxo(data, ano, "ALL", "Todas as contas")
+            if not novos_registros:
+                print(f"Sem dados no ano {ano}")
+                continue
+            registros.extend(novos_registros)
+            sleep(0.5)
+        except Exception as exc:
+            print(f"Erro no fluxo consolidado ano {ano}: {exc}")
 
     if not registros:
         print("Nenhum dado coletado.")
@@ -238,18 +246,44 @@ def gerar_de_para(data=None):
             raise FileNotFoundError(f"Arquivo {path} nao encontrado.")
         data = pd.read_json(path)
 
-    subcats = sorted(set(data["subcategoria"].dropna()))
+    subcats = sorted({
+        str(subcat).strip()
+        for subcat in data["subcategoria"].dropna()
+        if str(subcat).strip()
+    })
     dp_path = DATA_DIR / "de_para_categorias_mv.json"
-    existente = json.loads(dp_path.read_text(encoding="utf-8")) if dp_path.exists() else []
-    mapeadas = {item["subcategoria"] for item in existente if "subcategoria" in item}
+    existente_raw = json.loads(dp_path.read_text(encoding="utf-8")) if dp_path.exists() else []
+
+    pure_groups = {}
+    por_subcategoria = {}
+    pendentes = {"", "Ajustar", "Sem Grupo"}
+    for item in existente_raw:
+        sub = str(item.get("subcategoria") or item.get("Subcategoria") or "").strip()
+        cat = str(item.get("categoria") or item.get("Categoria") or "").strip()
+        ordem = item.get("ordem", item.get("Ordem", 999))
+
+        if cat == "Ajustar":
+            cat = "Sem Grupo"
+
+        if not sub:
+            if cat and (cat not in pure_groups or ordem < pure_groups[cat]["ordem"]):
+                pure_groups[cat] = {"subcategoria": "", "categoria": cat, "ordem": ordem}
+            continue
+
+        atual = por_subcategoria.get(sub)
+        novo = {"subcategoria": sub, "categoria": cat or "Sem Grupo", "ordem": ordem}
+        if atual is None or (atual["categoria"] in pendentes and novo["categoria"] not in pendentes):
+            por_subcategoria[sub] = novo
+
+    mapeadas = set(por_subcategoria)
 
     novos = [
-        {"subcategoria": subcat, "categoria": "Ajustar", "ordem": 999}
+        {"subcategoria": subcat, "categoria": "Sem Grupo", "ordem": 999}
         for subcat in subcats
         if subcat not in mapeadas
     ]
 
-    combinado = existente + novos
+    combinado = list(pure_groups.values()) + list(por_subcategoria.values()) + novos
     dp_path.write_text(
         json.dumps(combinado, ensure_ascii=False, indent=2),
         encoding="utf-8",

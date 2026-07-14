@@ -1,55 +1,60 @@
-import requests
-import pandas as pd
 import json
-import os
+import sys
 from pathlib import Path
+
+import pandas as pd
+import requests
+
+
+def encontrar_raiz_projeto(start):
+    for path in [start, *start.parents]:
+        if (path / "app.py").exists():
+            return path
+    return start.parent
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = encontrar_raiz_projeto(SCRIPT_DIR)
+DATA_DIR = BASE_DIR / "dados"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+sys.path.insert(0, str(BASE_DIR))
+
+from scripts.coleta_fluxo_ca import normalizar_headers_fluxo
+
 
 def coletar_contas_bancarias():
     """
-    Coleta contas bancárias, processa os dados e salva em dados/base_02_cb.json.
-    Retorna o DataFrame final.
-    Mantém exatamente o mesmo tratamento do script original.
+    Coleta contas financeiras da API atual do Conta Azul Pro.
     """
-    # Inicialização de paths robusta
-    script_dir = Path(__file__).resolve().parent
-    base_dir   = script_dir.parent
-    data_dir   = base_dir / 'dados'
-    data_dir.mkdir(parents=True, exist_ok=True)
-    os.chdir(data_dir)  # Para garantir compatibilidade máxima
-
-    url = "https://services.contaazul.com/contaazul-bff/dashboard/v1/financial-accounts"
-    payload = {}
-
-    headers_path = data_dir / 'headers_contaazul.json'
+    headers_path = DATA_DIR / "headers_contaazul.json"
     if not headers_path.exists():
-        raise FileNotFoundError(f"Arquivo {headers_path} não encontrado.")
-    with open(headers_path, "r", encoding="utf-8") as f:
-        headers = json.load(f)
+        raise FileNotFoundError(f"Arquivo {headers_path} nao encontrado.")
 
-    response = requests.request("GET", url, headers=headers, data=payload)
+    headers = normalizar_headers_fluxo(json.loads(headers_path.read_text(encoding="utf-8")))
+    url = "https://services.contaazul.com/finance-pro/v1/financial-accounts"
+    params = {"search": "", "page_size": 100, "page": 1}
+    response = requests.get(url, headers=headers, params=params, timeout=60)
     if response.status_code != 200:
-        print(f"Erro na requisição: {response.status_code}")
-        print("Resposta:", response.text)
-        return None
+        raise RuntimeError(f"Erro na requisicao: {response.status_code} - {response.text}")
 
     data = response.json()
-    base_cb = pd.DataFrame(data["dashboardBankAccounts"])
+    items = data.get("items", [])
+    rows = [
+        {
+            "ativo": bool(item.get("active")),
+            "nmBanco": item.get("name") or "Sem nome",
+            "financialAccountId": item.get("id"),
+        }
+        for item in items
+        if item.get("id")
+    ]
 
-    # -- Tratamento idêntico ao original
-    base_cb['ativo'] = base_cb['bankAccount'].apply(lambda x: x['ativo'])
-    base_cb['nmBanco'] = base_cb['bankAccount'].apply(lambda x: x['nmBanco'])
-    base_cb['uuid'] = base_cb['bankAccount'].apply(lambda x: x['uuid'])
+    df = pd.DataFrame(rows, columns=["ativo", "nmBanco", "financialAccountId"])
+    out_path = DATA_DIR / "base_02_cb.json"
+    df.to_json(str(out_path), orient="records", force_ascii=False, indent=2)
+    print(f"Consulta de base CB finalizada com sucesso em {out_path}")
+    return df
 
-    # Renomear e filtrar colunas
-    base_cb.rename(columns={'uuid': 'financialAccountId'}, inplace=True)
-    filtered_df = base_cb[['ativo', 'nmBanco', 'financialAccountId']]
 
-    # Salvar em JSON
-    out_path = data_dir / "base_02_cb.json"
-    filtered_df.to_json(str(out_path), force_ascii=False, indent=2)
-    print(f"✅ Consulta de base CB finalizada com sucesso em {out_path}")
-
-    return filtered_df
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     coletar_contas_bancarias()

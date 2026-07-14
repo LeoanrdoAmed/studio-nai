@@ -81,6 +81,16 @@ DESP_CSV = os.path.join(UPLOAD_FOLDER, 'despesas.csv')
 
 import json
 
+def de_para_subcategoria(item):
+    return (item.get('subcategoria') or item.get('Subcategoria') or '').strip()
+
+def de_para_categoria(item):
+    return (item.get('categoria') or item.get('Categoria') or '').strip()
+
+def set_de_para_categoria(item, categoria):
+    item.pop('Categoria', None)
+    item['categoria'] = categoria
+
 def carregar_ordem_dos_grupos():
     caminho = os.path.join("dados", "de_para_categorias_mv.json")
     if not os.path.exists(caminho):
@@ -91,7 +101,7 @@ def carregar_ordem_dos_grupos():
     
     grupos_unicos = {}
     for item in dados:
-        grupo = item.get("Categoria", "").strip()
+        grupo = de_para_categoria(item)
         ordem = item.get("ordem", 999)
         if grupo and grupo not in grupos_unicos:
             grupos_unicos[grupo] = ordem
@@ -499,27 +509,33 @@ def fluxo():
             except json.JSONDecodeError:
                 raw = []
         for item in raw:
-            sub  = (item.get('subcategoria') or item.get('Subcategoria', '')).strip()
-            cat  = (item.get('categoria')   or item.get('Categoria',   '')).strip()
+            sub  = de_para_subcategoria(item)
+            cat  = de_para_categoria(item)
             ordv = item.get('ordem')       or item.get('Ordem', 9999)
             de_para.append({'subcategoria': sub, 'categoria': cat, 'ordem': ordv})
 
     # 5) Atualizar mapping com novas entradas
     unique_subs = df['subcategoria'].dropna().astype(str).str.strip().unique()
-    mapped_subs = {d['subcategoria'] for d in de_para}
+    mapped_subs = {d['subcategoria'] for d in de_para if d['subcategoria']}
     novos       = [s for s in unique_subs if s not in mapped_subs]
-    temp_map    = {d['subcategoria']: d['categoria'] for d in de_para}
+    temp_map    = {d['subcategoria']: d['categoria'] for d in de_para if d['subcategoria']}
 
     # mapear e preencher 'Sem Grupo'
+    fallback_categoria = (
+        df['categoria'].astype(str).str.strip().replace('', pd.NA)
+        if 'categoria' in df.columns
+        else pd.Series(pd.NA, index=df.index)
+    )
     df['categoria'] = (
         df['subcategoria'].astype(str).str.strip()
           .map(temp_map)
-          .fillna(df.get('categoria', pd.NA).fillna('Sem Grupo'))
+          .replace('', pd.NA)
+          .fillna(fallback_categoria.fillna('Sem Grupo'))
     )
 
     unique_cats = df['categoria'].dropna().unique()
-    mapped_cats = {d['categoria'] for d in de_para}
-    novas_cats  = [c for c in unique_cats if c not in mapped_cats]
+    mapped_cats = {d['categoria'] for d in de_para if d['categoria']}
+    novas_cats  = [c for c in unique_cats if c and c not in mapped_cats]
     if novos or novas_cats:
         base_ord = max((d['ordem'] for d in de_para), default=0)
         for i, sub in enumerate(novos, start=1):
@@ -531,9 +547,14 @@ def fluxo():
             json.dump(de_para, f, ensure_ascii=False, indent=2)
 
     # 6) Aplicar mapping definitivo
-    mapa      = {d['subcategoria']: d['categoria'] for d in de_para}
-    ordem_map = {d['categoria']:   d['ordem'] for d in de_para}
-    df['categoria'] = df['subcategoria'].map(mapa).fillna(df['categoria'])
+    mapa      = {d['subcategoria']: d['categoria'] for d in de_para if d['subcategoria']}
+    ordem_map = {d['categoria']:   d['ordem'] for d in de_para if d['categoria']}
+    df['categoria'] = (
+        df['subcategoria'].astype(str).str.strip()
+          .map(mapa)
+          .replace('', pd.NA)
+          .fillna(df['categoria'])
+    )
 
     # **Remover** todas as linhas cuja categoria ficou 'Sem Grupo'
     df = df[df['categoria'] != 'Sem Grupo']
@@ -964,8 +985,8 @@ def editar_grupo():
         with open(caminho, 'r', encoding='utf-8') as f:
             dados = json.load(f)
         for item in dados:
-            if item['Categoria'] == antigo:
-                item['Categoria'] = novo
+            if de_para_categoria(item) == antigo:
+                set_de_para_categoria(item, novo)
         with open(caminho, 'w', encoding='utf-8') as f:
             json.dump(dados, f, indent=2, ensure_ascii=False)
     return redirect(url_for('cadastro_grupos'))
@@ -981,7 +1002,7 @@ def excluir_grupo():
         # filtra usando a chave lowercase 'categoria', caindo em compatibilidade se ainda houver 'Categoria'
         dados = [
             item for item in dados
-            if item.get('categoria', item.get('Categoria', '')) != grupo
+            if de_para_categoria(item) != grupo
         ]
         with open(caminho, 'w', encoding='utf-8') as f:
             json.dump(dados, f, indent=2, ensure_ascii=False)
@@ -1007,7 +1028,7 @@ def cadastro_grupos():
     if request.method == "POST" and "novo_grupo" in request.form:
         novo_grupo = request.form["novo_grupo"].strip()
         if novo_grupo:
-            dados.append({"Categoria": novo_grupo, "Grupo": None, "ordem": 9999})
+            dados.append({"subcategoria": "", "categoria": novo_grupo, "ordem": 9999})
             with open(caminho_json, "w", encoding="utf-8") as f:
                 json.dump(dados, f, ensure_ascii=False, indent=2)
         return redirect(url_for("cadastro_grupos"))
@@ -1015,7 +1036,7 @@ def cadastro_grupos():
     # Organiza os grupos únicos com menor ordem atribuída
     ordens = {}
     for item in dados:
-        categoria = item.get("Categoria", "").strip()
+        categoria = de_para_categoria(item)
         ordem = item.get("ordem", 9999)
         if categoria:
             if categoria not in ordens or ordem < ordens[categoria]:
@@ -1056,12 +1077,12 @@ def ajuste_categorias():
         # normalizar keys
         de_para = []
         for item in de_para_raw:
-            sub = item.get('subcategoria', item.get('Subcategoria', ''))
-            cat = item.get('categoria',    item.get('Categoria',    ''))
+            sub = de_para_subcategoria(item)
+            cat = de_para_categoria(item)
             ordv= item.get('ordem',        item.get('Ordem',        999))
             de_para.append({'subcategoria': sub, 'categoria': cat, 'ordem': ordv})
 
-        grupos = sorted({d['categoria'] for d in de_para if d['categoria']})
+        grupos = sorted({d['categoria'] for d in de_para if d['categoria'] and d['categoria'] != 'Sem Grupo'})
         associacoes = {d['subcategoria']: d['categoria'] for d in de_para if d['subcategoria']}
         return render_template(
             'ajuste_categorias.html',
@@ -1072,7 +1093,14 @@ def ajuste_categorias():
 
     # POST: salvar alterações
     # 1️⃣ preservar todos os grupos puros (sem subcategoria)
-    pure_groups = [item for item in de_para_raw if not item.get('subcategoria')]
+    pure_groups = []
+    for item in de_para_raw:
+        if not de_para_subcategoria(item):
+            pure_groups.append({
+                'subcategoria': '',
+                'categoria': de_para_categoria(item),
+                'ordem': item.get('ordem', item.get('Ordem', 999))
+            })
     # 2️⃣ construir nova lista mantendo pure_groups
     novo_de_para = list(pure_groups)
     # 3️⃣ para cada subcategoria, ler seleção e adicionar
@@ -1080,11 +1108,11 @@ def ajuste_categorias():
         grupo_sel = request.form.get(sub)
         if grupo_sel:
             # tentar reaproveitar ordem antiga
-            orig = next((i for i in de_para_raw if i.get('subcategoria') == sub), None)
+            orig = next((i for i in de_para_raw if de_para_subcategoria(i) == sub), None)
             ordem_ant = orig.get('ordem', 999) if orig else 999
             novo_de_para.append({
+                'categoria':    grupo_sel,
                 'subcategoria': sub,
-                'Categoria':    grupo_sel,  # manter maiúscula para compatibilidade
                 'ordem':        ordem_ant
             })
 
@@ -1110,7 +1138,7 @@ def atualizar_ordem():
 
     # Atualizar ordem apenas para categorias existentes
     for item in dados:
-        grupo = item.get("Categoria")
+        grupo = de_para_categoria(item)
         campo_ordem = f"ordem_{grupo}"
         nova_ordem = request.form.get(campo_ordem)
 
