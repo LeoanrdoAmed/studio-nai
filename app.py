@@ -2,6 +2,7 @@ from flask import Flask, render_template, request
 from flask import flash
 import pandas as pd
 import os
+import re
 from flask import Flask, render_template, request, redirect, url_for, session
 from functools import wraps
 from scripts.extrair_auth import extrair_secret_de_uri
@@ -809,6 +810,293 @@ def salvar_usuarios(lista):
             pass
         raise
 
+CONTAAZUL_LICENSES_JSON = DATA_DIR / "contaazul_licencas.json"
+CONTAAZUL_FILES = (
+    "base_01_cc.json",
+    "base_02_cb.json",
+    "base_03_rc.json",
+    "base_final_04_rc.json",
+    "base_fluxo_ca.json",
+)
+
+
+def ler_json_seguro(path, default):
+    if not path.exists() or path.stat().st_size == 0:
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def escrever_json_seguro(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def contaazul_safe_id(value):
+    value = (value or "").strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    return value.strip("-") or f"licenca-{int(datetime.now().timestamp() * 1000)}"
+
+
+def contaazul_parse_year(value, default=None):
+    default = default or datetime.today().year
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return default
+    return year if 2000 <= year <= 2100 else default
+
+
+def contaazul_parse_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "off", "no", "nao"}
+    return bool(value)
+
+
+def normalizar_licenca_contaazul(raw):
+    raw = raw or {}
+    nome = (raw.get("nome") or raw.get("empresa") or raw.get("email") or "Studio Nai").strip()
+    email = (raw.get("email") or "").strip()
+    return {
+        "id": contaazul_safe_id(raw.get("id") or nome or email),
+        "nome": nome,
+        "email": email,
+        "senha": raw.get("senha", ""),
+        "otp_secret": raw.get("otp_secret", ""),
+        "ano_base": contaazul_parse_year(raw.get("ano_base")),
+        "ativo": contaazul_parse_bool(raw.get("ativo"), True),
+        "ultima_conexao": raw.get("ultima_conexao"),
+        "ultima_coleta": raw.get("ultima_coleta"),
+        "ultimo_status": raw.get("ultimo_status", "pendente"),
+        "ultimo_erro": raw.get("ultimo_erro"),
+    }
+
+
+def salvar_licencas_contaazul(licencas):
+    escrever_json_seguro(CONTAAZUL_LICENSES_JSON, [normalizar_licenca_contaazul(item) for item in licencas])
+
+
+def carregar_licencas_contaazul():
+    licencas = ler_json_seguro(CONTAAZUL_LICENSES_JSON, None)
+    if isinstance(licencas, list):
+        return [normalizar_licenca_contaazul(item) for item in licencas if isinstance(item, dict)]
+    if isinstance(licencas, dict):
+        return [normalizar_licenca_contaazul(licencas)]
+
+    legado = ler_json_seguro(DATA_DIR / "credenciais_contaazul.json", {})
+    if isinstance(legado, dict) and legado.get("email"):
+        headers_path = DATA_DIR / "headers_contaazul.json"
+        ultima_conexao = None
+        if headers_path.exists():
+            ultima_conexao = datetime.fromtimestamp(headers_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        licenca = normalizar_licenca_contaazul({
+            **legado,
+            "id": "studio-nai",
+            "nome": "Studio Nai",
+            "ultima_conexao": ultima_conexao,
+            "ultimo_status": "conectada" if ultima_conexao else "migrada",
+        })
+        salvar_licencas_contaazul([licenca])
+        return [licenca]
+    return []
+
+
+def encontrar_licenca_contaazul(licenca_id):
+    licenca_id = contaazul_safe_id(licenca_id or "")
+    return next((item for item in carregar_licencas_contaazul() if item["id"] == licenca_id), None)
+
+
+def upsert_licenca_contaazul(licenca):
+    licenca = normalizar_licenca_contaazul(licenca)
+    licencas = carregar_licencas_contaazul()
+    for index, atual in enumerate(licencas):
+        if atual["id"] == licenca["id"]:
+            licencas[index] = {**atual, **licenca}
+            salvar_licencas_contaazul(licencas)
+            return licencas[index]
+    licencas.append(licenca)
+    salvar_licencas_contaazul(licencas)
+    return licenca
+
+
+def sync_licenca_contaazul_legado(licenca, headers=None):
+    escrever_json_seguro(DATA_DIR / "credenciais_contaazul.json", {
+        "email": licenca.get("email"),
+        "senha": licenca.get("senha"),
+        "otp_secret": licenca.get("otp_secret"),
+        "ano_base": licenca.get("ano_base"),
+    })
+    if headers is not None:
+        escrever_json_seguro(DATA_DIR / "headers_contaazul.json", headers)
+
+
+def parse_otp_contaazul(raw_value, current_secret=""):
+    raw_value = (raw_value or "").strip()
+    if not raw_value:
+        return current_secret
+    from scripts.extrair_auth import extrair_secret_de_uri
+    return extrair_secret_de_uri(raw_value)
+
+
+def autenticar_licenca_contaazul_studio(licenca):
+    from scripts.autenticador_ca import autenticar_contaazul
+
+    headers = autenticar_contaazul(licenca["email"], licenca["senha"], licenca["otp_secret"])
+    licenca["ultima_conexao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    licenca["ultimo_status"] = "conectada"
+    licenca["ultimo_erro"] = None
+    licenca = upsert_licenca_contaazul(licenca)
+    sync_licenca_contaazul_legado(licenca, headers)
+    return licenca, headers
+
+
+def executar_coleta_contaazul_studio(licenca):
+    from scripts.consulta_web import web_consulta
+    from scripts.coleta_fluxo_ca import coletar_fluxo, gerar_de_para
+    from scripts.extrator_de_cb import coletar_contas_bancarias
+    from scripts.extrator_de_cc import coletar_centros_de_custo
+    from scripts.extrator_de_rc import coletar_recebiveis
+    from scripts.unificador_de_tabelas import unificador
+
+    sync_licenca_contaazul_legado(licenca)
+    web_consulta()
+    contas = coletar_contas_bancarias()
+    centros = coletar_centros_de_custo()
+    df_fluxo = coletar_fluxo()
+    gerar_de_para(df_fluxo)
+    recebiveis = coletar_recebiveis()
+    unificador()
+
+    licenca["ultima_coleta"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    licenca["ultimo_status"] = "coletada"
+    licenca["ultimo_erro"] = None
+    upsert_licenca_contaazul(licenca)
+
+    return {
+        "contas": 0 if contas is None else int(len(contas)),
+        "centros": 0 if centros is None else int(len(centros)),
+        "fluxo": 0 if df_fluxo is None else int(len(df_fluxo)),
+        "recebiveis": 0 if recebiveis is None else int(len(recebiveis)),
+    }
+
+
+def stats_contaazul_studio(_licenca_id):
+    stats = {"tem_headers": (DATA_DIR / "headers_contaazul.json").exists(), "arquivos": {}}
+    for filename in CONTAAZUL_FILES:
+        path = DATA_DIR / filename
+        if path.exists():
+            stats["arquivos"][filename] = {
+                "tamanho": path.stat().st_size,
+                "atualizado_em": datetime.fromtimestamp(path.stat().st_mtime).strftime("%d/%m/%Y %H:%M"),
+            }
+    return stats
+
+
+def handle_contaazul_studio_post():
+    acao = request.form.get("acao")
+
+    if acao in {"salvar_licenca", "conectar"}:
+        licenca_id = request.form.get("licenca_id", "").strip()
+        existente = encontrar_licenca_contaazul(licenca_id) if licenca_id else None
+        nome = request.form.get("nome", "").strip() or (existente or {}).get("nome") or "Studio Nai"
+        email = request.form.get("email", "").strip() or (existente or {}).get("email", "")
+        senha = request.form.get("senha", "").strip() or (existente or {}).get("senha", "")
+        otp_secret = parse_otp_contaazul(request.form.get("otp_uri", ""), (existente or {}).get("otp_secret", ""))
+        ano_base = contaazul_parse_year(request.form.get("ano_base", ""), (existente or {}).get("ano_base"))
+
+        if not (nome and email and senha and otp_secret):
+            flash("Preencha nome, email, senha e chave OTP.", "danger")
+            return redirect(url_for("conectar_contaazul"))
+
+        licenca = normalizar_licenca_contaazul({
+            **(existente or {}),
+            "id": licenca_id or contaazul_safe_id(f"{nome}-{email}"),
+            "nome": nome,
+            "email": email,
+            "senha": senha,
+            "otp_secret": otp_secret,
+            "ano_base": ano_base,
+            "ativo": request.form.get("ativo") == "on",
+            "ultimo_status": (existente or {}).get("ultimo_status", "salva"),
+            "ultimo_erro": None,
+        })
+        licenca = upsert_licenca_contaazul(licenca)
+        sync_licenca_contaazul_legado(licenca)
+
+        if acao == "conectar":
+            autenticar_licenca_contaazul_studio(licenca)
+            flash(f"Conexao da licenca '{licenca['nome']}' atualizada com sucesso.", "success")
+        else:
+            flash(f"Licenca '{licenca['nome']}' salva com sucesso.", "success")
+
+    elif acao == "atualizar":
+        licenca = encontrar_licenca_contaazul(request.form.get("licenca_id", ""))
+        if not licenca:
+            flash("Licenca nao encontrada.", "danger")
+            return redirect(url_for("conectar_contaazul"))
+        autenticar_licenca_contaazul_studio(licenca)
+        flash(f"Conexao da licenca '{licenca['nome']}' atualizada com sucesso.", "success")
+
+    elif acao == "extrair":
+        licenca = encontrar_licenca_contaazul(request.form.get("licenca_id", ""))
+        if not licenca:
+            flash("Licenca nao encontrada.", "danger")
+            return redirect(url_for("conectar_contaazul"))
+        if not (DATA_DIR / "headers_contaazul.json").exists():
+            licenca, _headers = autenticar_licenca_contaazul_studio(licenca)
+        resultado = executar_coleta_contaazul_studio(licenca)
+        flash(
+            f"Dados coletados para '{licenca['nome']}': "
+            f"{resultado['contas']} contas, {resultado['centros']} centros, "
+            f"{resultado['fluxo']} linhas de fluxo.",
+            "success",
+        )
+
+    elif acao == "extrair_todas":
+        licencas = [item for item in carregar_licencas_contaazul() if item.get("ativo")]
+        if not licencas:
+            flash("Nenhuma licenca ativa cadastrada.", "warning")
+            return redirect(url_for("conectar_contaazul"))
+        erros = []
+        for licenca in licencas:
+            try:
+                if not (DATA_DIR / "headers_contaazul.json").exists():
+                    licenca, _headers = autenticar_licenca_contaazul_studio(licenca)
+                executar_coleta_contaazul_studio(licenca)
+            except Exception as exc:
+                licenca["ultimo_status"] = "erro"
+                licenca["ultimo_erro"] = str(exc)
+                upsert_licenca_contaazul(licenca)
+                erros.append(f"{licenca['nome']}: {exc}")
+        if erros:
+            flash("Algumas licencas falharam: " + " | ".join(erros), "warning")
+        else:
+            flash("Licencas ativas coletadas com sucesso.", "success")
+
+    elif acao == "alternar_ativo":
+        licenca = encontrar_licenca_contaazul(request.form.get("licenca_id", ""))
+        if licenca:
+            licenca["ativo"] = not licenca.get("ativo", True)
+            upsert_licenca_contaazul(licenca)
+            sync_licenca_contaazul_legado(licenca)
+            flash(f"Licenca '{licenca['nome']}' atualizada.", "success")
+
+    elif acao == "excluir_licenca":
+        licenca_id = contaazul_safe_id(request.form.get("licenca_id", ""))
+        licencas = [item for item in carregar_licencas_contaazul() if item["id"] != licenca_id]
+        salvar_licencas_contaazul(licencas)
+        flash("Licenca removida do cadastro.", "success")
+
+    else:
+        flash("Acao invalida.", "danger")
+
+    return redirect(url_for("conectar_contaazul"))
+
+
 @app.route("/usuarios", methods=["GET", "POST"])
 def cadastro_usuarios():
     erro = sucesso = None
@@ -839,6 +1127,23 @@ def cadastro_usuarios():
 @app.route("/conectar_contaazul", methods=["GET", "POST"])
 @login_required
 def conectar_contaazul():
+    if request.method == "POST":
+        try:
+            return handle_contaazul_studio_post()
+        except Exception as e:
+            flash(f"Erro na operacao da Conta Azul: {e}", "danger")
+            print(f"[ERRO] {e}")
+            return redirect(url_for("conectar_contaazul"))
+
+    licencas = carregar_licencas_contaazul()
+    stats = {licenca["id"]: stats_contaazul_studio(licenca["id"]) for licenca in licencas}
+    return render_template(
+        "conectar_contaazul.html",
+        licencas=licencas,
+        stats=stats,
+        current_year=date.today().year,
+    )
+
     import json
     from datetime import datetime
     from pathlib import Path
@@ -952,6 +1257,33 @@ def conectar_contaazul():
 @app.route("/conectar_contaazul_automatica")
 @login_required
 def conectar_contaazul_automatica():
+    try:
+        licencas = [item for item in carregar_licencas_contaazul() if item.get("ativo")]
+        if not licencas:
+            flash("Nenhuma licenca ativa cadastrada.", "warning")
+            return redirect(url_for("conectar_contaazul"))
+
+        erros = []
+        for licenca in licencas:
+            try:
+                licenca, _headers = autenticar_licenca_contaazul_studio(licenca)
+                executar_coleta_contaazul_studio(licenca)
+            except Exception as exc:
+                licenca["ultimo_status"] = "erro"
+                licenca["ultimo_erro"] = str(exc)
+                upsert_licenca_contaazul(licenca)
+                erros.append(f"{licenca['nome']}: {exc}")
+
+        if erros:
+            flash("Atualizacao automatica concluida com falhas: " + " | ".join(erros), "warning")
+        else:
+            flash("Atualizacao automatica concluida com sucesso.", "success")
+    except Exception as e:
+        flash(f"Erro na conexao automatica: {e}", "danger")
+        print(f"[ERRO] {e}")
+
+    return redirect(url_for("conectar_contaazul"))
+
     import os
     import json
     from datetime import datetime

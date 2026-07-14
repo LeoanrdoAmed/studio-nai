@@ -1,71 +1,206 @@
-{# templates/conectar_contaazul.html #}
 {% extends "layout_base.html" %}
-{% block title %}Conectar Conta Azul{% endblock %}
+{% block title %}Conta Azul{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0 fw-bold">🔗 Conectar Conta Azul</h4>
-</div>
-
-<div class="card shadow-sm p-4">
-    <form method="POST">
-        <div class="row g-3">
-            <!-- campos existentes -->
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">📧 Email</label>
-                <input type="email" class="form-control form-control-sm" name="email" placeholder="email@empresa.com">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">🔑 Senha</label>
-                <input type="password" class="form-control form-control-sm" name="senha" placeholder="Senha Conta Azul">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">🔐 Chave Google Authenticator</label>
-                <input type="text" class="form-control form-control-sm" name="otp_uri" placeholder="otpauth://totp/...?secret=XXXX">
-                <div class="form-text">Informe a chave no formato <code>otpauth://...</code></div>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label fw-semibold">📅 Ano Base</label>
-                <input type="number" class="form-control form-control-sm" name="ano_base" placeholder="Ex: 2025" min="2000" max="2100">
-                <div class="form-text">🗓️ Usado como filtro padrão no Fluxo.</div>
-            </div>
-        </div>
-        <div class="d-flex justify-content-end gap-2 mt-4">
-            <button type="submit" name="acao" value="conectar" class="btn btn-success btn-sm">🔗 Conectar e Salvar Credenciais</button>
-            <button type="submit" name="acao" value="atualizar"  class="btn btn-primary btn-sm">🔄 Atualizar Conexão</button>
-        </div>
+  <h4 class="mb-0 fw-bold">Conta Azul</h4>
+  <div class="d-flex gap-2">
+    <form method="POST" class="d-inline">
+      <button type="submit" name="acao" value="extrair_todas" class="btn btn-primary btn-sm">
+        <i class="bi bi-cloud-download me-1"></i>Extrair ativas
+      </button>
     </form>
+    <a href="{{ url_for('conectar_contaazul_automatica') }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-arrow-clockwise me-1"></i>Atualizar ativas
+    </a>
+  </div>
 </div>
 
-{% if credenciais %}
-<div class="card shadow-sm p-4 mt-4">
-    <h5 class="fw-semibold">🔑 Credenciais Cadastradas</h5>
-    <table class="table table-striped table-sm">
-        <thead>
-            <tr><th>Email</th><th>Ano Base</th><th>Ações</th></tr>
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <h5 class="card-title mb-3">Nova licenca</h5>
+    <form method="POST">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Nome</label>
+          <input type="text" class="form-control form-control-sm" name="nome" placeholder="Ex: Studio Nai" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Email</label>
+          <input type="email" class="form-control form-control-sm" name="email" placeholder="email@empresa.com" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Senha</label>
+          <input type="password" class="form-control form-control-sm" name="senha" placeholder="Senha" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Chave OTP</label>
+          <input type="text" class="form-control form-control-sm" name="otp_uri" placeholder="otpauth://..., QR exportado ou secret" required>
+          <div class="form-text">Nao use o codigo temporario de 6 digitos.</div>
+        </div>
+        <div class="col-md-1">
+          <label class="form-label fw-semibold">Ano</label>
+          <input type="number" class="form-control form-control-sm" name="ano_base" min="2000" max="2100" value="{{ current_year }}">
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="ativo" id="ativo_nova" checked>
+            <label class="form-check-label" for="ativo_nova">Ativa</label>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="submit" name="acao" value="salvar_licenca" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-save me-1"></i>Salvar
+        </button>
+        <button type="submit" name="acao" value="conectar" class="btn btn-success btn-sm">
+          <i class="bi bi-link-45deg me-1"></i>Conectar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="card-title mb-0">Licencas cadastradas</h5>
+      <span class="badge text-bg-secondary">{{ licencas|length }}</span>
+    </div>
+
+    {% if licencas %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Licenca</th>
+            <th>Email</th>
+            <th>Ano base</th>
+            <th>Status</th>
+            <th>Ultima conexao</th>
+            <th>Ultima coleta</th>
+            <th>Arquivos</th>
+            <th class="text-end">Acoes</th>
+          </tr>
         </thead>
         <tbody>
-        {% for c in credenciais %}
-            <tr>
-                <td>{{ c.email }}</td>
-                <td>{{ c.ano_base }}</td>
-                <td>
-                    <form method="POST" style="display:inline;">
-                        <input type="hidden" name="acao" value="deletar">
-                        <input type="hidden" name="email_delete" value="{{ c.email }}">
-                        <button type="submit" class="btn btn-outline-danger btn-sm">Excluir</button>
-                    </form>
-                </td>
-            </tr>
-        {% endfor %}
+          {% for licenca in licencas %}
+          {% set lic_stats = stats.get(licenca.id, {}) %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ licenca.nome }}</div>
+              <small class="text-muted">{{ licenca.id }}</small>
+              {% if not licenca.ativo %}
+              <span class="badge text-bg-light border ms-1">inativa</span>
+              {% endif %}
+            </td>
+            <td>{{ licenca.email }}</td>
+            <td>{{ licenca.ano_base }}</td>
+            <td>
+              {% if licenca.ultimo_status == 'erro' %}
+              <span class="badge text-bg-danger">erro</span>
+              {% elif licenca.ultimo_status == 'coletada' %}
+              <span class="badge text-bg-success">coletada</span>
+              {% elif licenca.ultimo_status == 'conectada' %}
+              <span class="badge text-bg-primary">conectada</span>
+              {% else %}
+              <span class="badge text-bg-secondary">{{ licenca.ultimo_status or 'pendente' }}</span>
+              {% endif %}
+              {% if licenca.ultimo_erro %}
+              <div class="small text-danger text-truncate" style="max-width: 260px;" title="{{ licenca.ultimo_erro }}">{{ licenca.ultimo_erro }}</div>
+              {% endif %}
+            </td>
+            <td>{{ licenca.ultima_conexao or '-' }}</td>
+            <td>{{ licenca.ultima_coleta or '-' }}</td>
+            <td>
+              {% if lic_stats.get('tem_headers') %}
+              <span class="badge text-bg-light border">headers</span>
+              {% endif %}
+              {% for filename, item in lic_stats.get('arquivos', {}).items() %}
+              <span class="badge text-bg-light border" title="{{ item.atualizado_em }}">{{ filename.replace('.json', '') }}</span>
+              {% endfor %}
+            </td>
+            <td class="text-end">
+              <div class="d-inline-flex gap-1">
+                <form method="POST">
+                  <input type="hidden" name="licenca_id" value="{{ licenca.id }}">
+                  <button type="submit" name="acao" value="atualizar" class="btn btn-outline-primary btn-sm" title="Atualizar conexao">
+                    <i class="bi bi-arrow-clockwise"></i>
+                  </button>
+                </form>
+                <form method="POST">
+                  <input type="hidden" name="licenca_id" value="{{ licenca.id }}">
+                  <button type="submit" name="acao" value="extrair" class="btn btn-outline-success btn-sm" title="Extrair dados">
+                    <i class="bi bi-cloud-download"></i>
+                  </button>
+                </form>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#edit_{{ licenca.id }}" title="Editar">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST">
+                  <input type="hidden" name="licenca_id" value="{{ licenca.id }}">
+                  <button type="submit" name="acao" value="alternar_ativo" class="btn btn-outline-secondary btn-sm" title="Ativar/inativar">
+                    <i class="bi bi-power"></i>
+                  </button>
+                </form>
+                <form method="POST" onsubmit="return confirm('Remover esta licenca do cadastro?')">
+                  <input type="hidden" name="licenca_id" value="{{ licenca.id }}">
+                  <button type="submit" name="acao" value="excluir_licenca" class="btn btn-outline-danger btn-sm" title="Excluir">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          <tr class="collapse" id="edit_{{ licenca.id }}">
+            <td colspan="8">
+              <form method="POST" class="row g-2 align-items-end">
+                <input type="hidden" name="licenca_id" value="{{ licenca.id }}">
+                <div class="col-md-3">
+                  <label class="form-label">Nome</label>
+                  <input class="form-control form-control-sm" name="nome" value="{{ licenca.nome }}" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Email</label>
+                  <input type="email" class="form-control form-control-sm" name="email" value="{{ licenca.email }}" required>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Senha</label>
+                  <input type="password" class="form-control form-control-sm" name="senha" placeholder="Manter atual">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Chave OTP</label>
+                  <input class="form-control form-control-sm" name="otp_uri" placeholder="Manter atual">
+                  <div class="form-text">Nao use o codigo temporario de 6 digitos.</div>
+                </div>
+                <div class="col-md-1">
+                  <label class="form-label">Ano</label>
+                  <input type="number" class="form-control form-control-sm" name="ano_base" value="{{ licenca.ano_base }}" min="2000" max="2100">
+                </div>
+                <div class="col-md-1">
+                  <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" name="ativo" id="ativo_{{ licenca.id }}" {% if licenca.ativo %}checked{% endif %}>
+                    <label class="form-check-label" for="ativo_{{ licenca.id }}">Ativa</label>
+                  </div>
+                </div>
+                <div class="col text-end">
+                  <button type="submit" name="acao" value="salvar_licenca" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-save me-1"></i>Salvar
+                  </button>
+                  <button type="submit" name="acao" value="conectar" class="btn btn-success btn-sm">
+                    <i class="bi bi-link-45deg me-1"></i>Conectar
+                  </button>
+                </div>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
         </tbody>
-    </table>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted">Nenhuma licenca cadastrada.</div>
+    {% endif %}
+  </div>
 </div>
-{% endif %}
-
-{% if ultima_conexao %}
-<div class="alert alert-info mt-3">
-    🔄 <strong>Última conexão:</strong> {{ ultima_conexao }}
-</div>
-{% endif %}
 {% endblock %}
