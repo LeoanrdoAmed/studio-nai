@@ -1732,6 +1732,19 @@ def dashboard():
 
     # --- 2) Padroniza coluna 'mes' ---
     df['mes'] = pd.to_datetime(df['mes'], format='%Y-%m').dt.strftime('%Y-%m')
+    contas_path = os.path.join(app.root_path, 'dados', 'base_02_cb.json')
+    if {'conta_id', 'conta_nome'}.issubset(df.columns) and os.path.exists(contas_path):
+        try:
+            df_cb = pd.read_json(contas_path)
+            nomes_contas = dict(zip(
+                df_cb['financialAccountId'].astype(str),
+                df_cb['nmBanco'].astype(str)
+            ))
+            conta_ids = df['conta_id'].where(df['conta_id'].notna(), '').astype(str)
+            nomes_atualizados = conta_ids.map(nomes_contas)
+            df['conta_nome'] = nomes_atualizados.fillna(df['conta_nome'])
+        except Exception as exc:
+            print(f"[dashboard] Nao foi possivel sincronizar nomes das contas: {exc}")
 
     # --- 3) Define período padrão ---
     hoje = datetime.now()
